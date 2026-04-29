@@ -87,7 +87,7 @@ func run() error {
 			ID:         endpoint.ID,
 			Name:       endpoint.Name,
 			BaseURL:    endpoint.BaseURL,
-			APIKeyEnv:  endpoint.APIKeyEnv,
+			SecretRef:  endpoint.SecretRef,
 			APIKey:     endpoint.APIKey,
 			KeySource:  endpoint.KeySource,
 			SecretHint: endpoint.SecretHint,

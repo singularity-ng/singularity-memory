@@ -74,6 +74,12 @@ func NewServer(deps Dependencies) http.Handler {
 		r.Put("/default/banks/{bank_id}", server.updateBank)
 		r.Patch("/default/banks/{bank_id}", server.updateBank)
 		r.Delete("/default/banks/{bank_id}", server.deleteBank)
+
+		// Memory endpoints gated by "memories" feature flag
+		r.Route("/default/banks/{bank_id}/memories", func(r chi.Router) {
+			r.Use(featureFlagMiddleware(deps.Config.FeatureFlags, "memories"))
+			r.Post("/", server.retain)
+		})
 	})
 
 	r.Route("/v1/model-catalog", func(r chi.Router) {
@@ -87,6 +93,10 @@ func NewServer(deps Dependencies) http.Handler {
 
 type server struct {
 	deps Dependencies
+}
+
+func (s *server) retain(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "retain endpoint is not yet implemented")
 }
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {

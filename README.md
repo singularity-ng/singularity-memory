@@ -57,15 +57,21 @@ go run ./cmd/modelwalk --server http://localhost:8888
 go run ./cmd/modelwalk --server http://localhost:8888 --ssh :23235
 ```
 
-For live provider discovery, configure actual OpenAI-compatible `/models`
-endpoints and an API key env var name. `SINGULARITY_MODEL_DISCOVERY_SECRET_SOURCE=sf-sops`
-loads only the SF-scoped namespace from `~/.dotfiles/secrets/api-keys.yaml`;
-the TUI shows endpoint, key env name, and `present/missing`, never key values.
+For live provider discovery, put the provider registry in the SF SOPS namespace
+or in the daemon's local discovery store. Secrets are resolved by `secret_ref`;
+the TUI shows endpoint, secret ref, and `present/missing`, never key values.
 
-```bash
-SINGULARITY_MODEL_DISCOVERY_SECRET_SOURCE=sf-sops \
-SINGULARITY_MODEL_DISCOVERY_ENDPOINTS='zai|https://api.z.ai/api/coding/paas/v4|ZAI_API_KEY|Z.AI;mistral|https://api.mistral.ai/v1|MISTRAL_API_KEY|Mistral;xiaomi|https://token-plan-ams.xiaomimimo.com/v1|XIAOMI_API_KEY|Xiaomi MiMo' \
-  go run ./cmd/singularity-memory-go
+```yaml
+# ~/.dotfiles/secrets/api-keys.yaml
+sf:
+  model_discovery:
+    providers:
+      - id: zai
+        name: Z.AI
+        base_url: https://api.z.ai/api/coding/paas/v4
+        secret_ref: sf.env.ZAI_API_KEY
+  env:
+    ZAI_API_KEY: ...
 ```
 
 The model catalog is daemon-owned state. `modelwalk` is the Charmbracelet

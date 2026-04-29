@@ -645,6 +645,54 @@ func TestFeatureFlagEnabledAllowsAccess(t *testing.T) {
 	}
 }
 
+func TestFeatureFlagMemoriesDisabledReturns404(t *testing.T) {
+	handler := NewServer(Dependencies{
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true, "memories": false}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/user123/memories", strings.NewReader(`{"items":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when memories flag disabled, got %d", rec.Code)
+	}
+}
+
+func TestFeatureFlagMemoriesEnabledAllowsAccess(t *testing.T) {
+	handler := NewServer(Dependencies{
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true, "memories": true}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/user123/memories", strings.NewReader(`{"items":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Should pass the feature flag gate and hit the stub handler (501 Not Implemented)
+	if rec.Code != http.StatusNotImplemented {
+		t.Fatalf("expected 501 when memories flag enabled (stub handler), got %d", rec.Code)
+	}
+}
+
+func TestFeatureFlagBanksDisabledBlocksMemories(t *testing.T) {
+	// The memories route is nested under /v1 which has the banks middleware.
+	// If banks is disabled, the /v1 route group returns 404 before memories is checked.
+	handler := NewServer(Dependencies{
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": false, "memories": true}},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/user123/memories", strings.NewReader(`{"items":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when banks flag disabled (memories nested under banks), got %d", rec.Code)
+	}
+}
+
 func assertJSONFixture(t *testing.T, gotBytes []byte, fixtureName string) {
 	t.Helper()
 
