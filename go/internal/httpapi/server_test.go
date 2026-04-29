@@ -27,20 +27,20 @@ type fakeStore struct {
 	deleteErr        error
 
 	// Memory store stubs
-	insertMemoryUnitID   string
-	insertMemoryUnitErr  error
-	getMemoryUnit        *store.MemoryUnit
-	getMemoryUnitErr     error
-	deleteMemoryUnitErr  error
-	listMemoryUnits      []store.MemoryUnit
-	listMemoryUnitsErr   error
-	insertMemoryLinkErr  error
-	getEntityObs         []store.EntityObservation
-	getEntityObsErr      error
-	insertChunkID        string
-	insertChunkErr       error
-	getChunks            []store.Chunk
-	getChunksErr         error
+	insertMemoryUnitID  string
+	insertMemoryUnitErr error
+	getMemoryUnit       *store.MemoryUnit
+	getMemoryUnitErr    error
+	deleteMemoryUnitErr error
+	listMemoryUnits     []store.MemoryUnit
+	listMemoryUnitsErr  error
+	insertMemoryLinkErr error
+	getEntityObs        []store.EntityObservation
+	getEntityObsErr     error
+	insertChunkID       string
+	insertChunkErr      error
+	getChunks           []store.Chunk
+	getChunksErr        error
 }
 
 func (f fakeStore) Ping(context.Context) error {
@@ -103,44 +103,6 @@ func (f fakeStore) InsertChunk(_ context.Context, _ string, _ *store.Chunk) (str
 
 func (f fakeStore) GetChunks(_ context.Context, _ string, _ string) ([]store.Chunk, error) {
 	return f.getChunks, f.getChunksErr
-}
-
-func (f fakeStore) InsertMemoryUnit(_ context.Context, _ string, unit *store.MemoryUnit) (string, error) {
-	if unit != nil && unit.ID != "" {
-		return unit.ID, nil
-	}
-	return "unit-test-id", nil
-}
-
-func (f fakeStore) GetMemoryUnit(_ context.Context, bankID string, unitID string) (*store.MemoryUnit, error) {
-	return &store.MemoryUnit{ID: unitID, BankID: bankID}, nil
-}
-
-func (f fakeStore) DeleteMemoryUnit(_ context.Context, _ string, _ string) error {
-	return nil
-}
-
-func (f fakeStore) ListMemoryUnits(_ context.Context, bankID string, _ int, _ int) ([]store.MemoryUnit, error) {
-	return []store.MemoryUnit{{ID: "unit-test-id", BankID: bankID}}, nil
-}
-
-func (f fakeStore) InsertMemoryLink(_ context.Context, _ *store.MemoryLink) error {
-	return nil
-}
-
-func (f fakeStore) GetEntityObservations(_ context.Context, _ string, _ string, _ int) ([]store.EntityObservation, error) {
-	return []store.EntityObservation{}, nil
-}
-
-func (f fakeStore) InsertChunk(_ context.Context, _ string, chunk *store.Chunk) (string, error) {
-	if chunk != nil && chunk.ChunkID != "" {
-		return chunk.ChunkID, nil
-	}
-	return "chunk-test-id", nil
-}
-
-func (f fakeStore) GetChunks(_ context.Context, _ string, documentID string) ([]store.Chunk, error) {
-	return []store.Chunk{{ChunkID: "chunk-test-id", DocumentID: documentID}}, nil
 }
 
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {

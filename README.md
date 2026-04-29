@@ -47,6 +47,21 @@ curl -s http://localhost:8888/healthz | jq .
 curl -s http://localhost:8888/v1/banks | jq .
 ```
 
+Manage the shared model catalog:
+
+```bash
+cd go
+curl -s -X POST http://localhost:8888/v1/model-catalog/sync | jq '.sources'
+curl -s http://localhost:8888/v1/model-catalog/export/sf | jq '.policy'
+go run ./cmd/modelwalk --server http://localhost:8888
+go run ./cmd/modelwalk --server http://localhost:8888 --ssh :23235
+```
+
+The model catalog is daemon-owned state. `modelwalk` is the Charmbracelet
+management UI, and SF should consume `/v1/model-catalog/export/sf` rather than
+owning provider normalization itself. Charm Soft Serve can host a Git-backed
+overlay repo later, but the live data plane stays in Singularity Memory.
+
 ## Wire it up
 
 | Client       | How                                                                          |
@@ -147,6 +162,7 @@ config is reference history during the migration. Common ones:
 | `SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS` | Optional output dimensions; unset uses model-native size |
 | `SINGULARITY_RERANK_OPENAI_BASE_URL`      | `https://llm-gateway.centralcloud.com/v1` |
 | `SINGULARITY_RERANK_MODEL`                | Rerank model, e.g. `qwen/qwen3-reranker-4b` |
+| `SINGULARITY_MODEL_CATALOG_PATH`          | JSON cache for Catwalk/models.dev normalized catalog |
 | `SINGULARITY_VECTOR_EXTENSION`            | `vchord`                             |
 | `SINGULARITY_TEXT_SEARCH_EXTENSION`       | `vchord`                             |
 
