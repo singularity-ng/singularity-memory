@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/pgvector/pgvector-go"
+
+	"github.com/singularity-ng/singularity-memory/go/internal/storageprofile"
 )
 
 // InsertMemoryUnit inserts a single memory unit into the database.
@@ -17,30 +19,59 @@ func (s *Store) InsertMemoryUnit(ctx context.Context, bankID string, unit *Memor
 	start := time.Now()
 	id := uuid.New().String()
 
-	query := `
-		INSERT INTO ` + s.table("memory_units") + ` (
-			id, bank_id, document_id, text, embedding, context,
-			event_date, occurred_start, occurred_end, mentioned_at,
-			fact_type, confidence_score, metadata, tags
-		) VALUES (
-			$1, $2, $3, $4, $5, $6,
-			$7, $8, $9, $10,
-			$11, $12, $13, $14
-		)
-	`
-
+	embedding := vectorParam(unit.Embedding)
 	metadataJSON, err := json.Marshal(unit.Metadata)
 	if err != nil {
 		return "", fmt.Errorf("marshal metadata: %w", err)
 	}
 
-	_, err = s.pool.Exec(ctx, query,
-		id, bankID, unit.DocumentID, unit.Text, unit.Embedding, unit.Context,
-		unit.EventDate, unit.OccurredStart, unit.OccurredEnd, unit.MentionedAt,
-		unit.FactType, unit.ConfidenceScore, metadataJSON, unit.Tags,
-	)
-	if err != nil {
-		return "", fmt.Errorf("insert memory unit: %w", err)
+	if s.storageProfile == storageprofile.VCHORD {
+		query := `
+		INSERT INTO ` + s.table("memory_units") + ` (
+			id, bank_id, document_id, text, embedding, context,
+			event_date, occurred_start, occurred_end, mentioned_at,
+			fact_type, confidence_score, metadata, tags,
+			chunk_id, proof_count, text_signals, search_vector
+		) VALUES (
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10,
+			$11, $12, $13, $14,
+			$15, COALESCE(NULLIF($16, 0), 1), $17,
+			tokenize(COALESCE($4, '') || ' ' || COALESCE($6, '') || ' ' || COALESCE($17, ''), 'llmlingua2')::bm25_catalog.bm25vector
+		)
+	`
+		_, err = s.pool.Exec(ctx, query,
+			id, bankID, unit.DocumentID, unit.Text, embedding, unit.Context,
+			unit.EventDate, unit.OccurredStart, unit.OccurredEnd, unit.MentionedAt,
+			unit.FactType, unit.ConfidenceScore, metadataJSON, unit.Tags,
+			unit.ChunkID, unit.ProofCount, unit.TextSignals,
+		)
+		if err != nil {
+			return "", fmt.Errorf("insert memory unit: %w", err)
+		}
+	} else {
+		query := `
+		INSERT INTO ` + s.table("memory_units") + ` (
+			id, bank_id, document_id, text, embedding, context,
+			event_date, occurred_start, occurred_end, mentioned_at,
+			fact_type, confidence_score, metadata, tags,
+			chunk_id, proof_count, text_signals
+		) VALUES (
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10,
+			$11, $12, $13, $14,
+			$15, COALESCE(NULLIF($16, 0), 1), $17
+		)
+	`
+		_, err = s.pool.Exec(ctx, query,
+			id, bankID, unit.DocumentID, unit.Text, embedding, unit.Context,
+			unit.EventDate, unit.OccurredStart, unit.OccurredEnd, unit.MentionedAt,
+			unit.FactType, unit.ConfidenceScore, metadataJSON, unit.Tags,
+			unit.ChunkID, unit.ProofCount, unit.TextSignals,
+		)
+		if err != nil {
+			return "", fmt.Errorf("insert memory unit: %w", err)
+		}
 	}
 
 	s.logQueryDuration(ctx, "InsertMemoryUnit", time.Since(start))
@@ -171,7 +202,7 @@ func (s *Store) InsertMemoryLink(ctx context.Context, link *MemoryLink) error {
 		) VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (
 			from_unit_id, to_unit_id, link_type,
-			COALESCE(entity_id, '00000000-0000-0000-0000-000000000000'::uuid)
+			(COALESCE(entity_id, '00000000-0000-0000-0000-000000000000'::uuid))
 		) DO UPDATE SET weight = EXCLUDED.weight
 	`
 
@@ -297,4 +328,11 @@ func (s *Store) logQueryDuration(ctx context.Context, operation string, d time.D
 	// In production this would be wired to metrics (Prometheus histogram).
 	// For now we satisfy the slice verification requirement by making the
 	// duration available through the context or a future metrics interface.
+}
+
+func vectorParam(values []float32) any {
+	if len(values) == 0 {
+		return nil
+	}
+	return pgvector.NewVector(values)
 }
