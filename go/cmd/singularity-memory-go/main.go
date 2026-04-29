@@ -81,8 +81,20 @@ func run() error {
 		log.Warn("SINGULARITY_RERANK_OPENAI_BASE_URL is not set; rerank endpoints will be unavailable")
 	}
 
-	modelCatalog := modelcatalog.NewService(cfg.ModelCatalogPath, modelcatalog.Fetcher{})
-	log.Info("model catalog configured", "path", cfg.ModelCatalogPath)
+	liveProviders := make([]modelcatalog.LiveProvider, 0, len(cfg.ModelDiscoveryEndpoints))
+	for _, endpoint := range cfg.ModelDiscoveryEndpoints {
+		liveProviders = append(liveProviders, modelcatalog.LiveProvider{
+			ID:         endpoint.ID,
+			Name:       endpoint.Name,
+			BaseURL:    endpoint.BaseURL,
+			APIKeyEnv:  endpoint.APIKeyEnv,
+			APIKey:     endpoint.APIKey,
+			KeySource:  endpoint.KeySource,
+			SecretHint: endpoint.SecretHint,
+		})
+	}
+	modelCatalog := modelcatalog.NewService(cfg.ModelCatalogPath, modelcatalog.Fetcher{LiveProviders: liveProviders})
+	log.Info("model catalog configured", "path", cfg.ModelCatalogPath, "live_providers", len(liveProviders), "secret_source", cfg.ModelDiscoverySecretSource)
 
 	handler := httpapi.NewServer(httpapi.Dependencies{
 		Config:       cfg,

@@ -57,6 +57,17 @@ go run ./cmd/modelwalk --server http://localhost:8888
 go run ./cmd/modelwalk --server http://localhost:8888 --ssh :23235
 ```
 
+For live provider discovery, configure actual OpenAI-compatible `/models`
+endpoints and an API key env var name. `SINGULARITY_MODEL_DISCOVERY_SECRET_SOURCE=sf-sops`
+loads only the SF-scoped namespace from `~/.dotfiles/secrets/api-keys.yaml`;
+the TUI shows endpoint, key env name, and `present/missing`, never key values.
+
+```bash
+SINGULARITY_MODEL_DISCOVERY_SECRET_SOURCE=sf-sops \
+SINGULARITY_MODEL_DISCOVERY_ENDPOINTS='zai|https://api.z.ai/api/coding/paas/v4|ZAI_API_KEY|Z.AI;mistral|https://api.mistral.ai/v1|MISTRAL_API_KEY|Mistral;xiaomi|https://token-plan-ams.xiaomimimo.com/v1|XIAOMI_API_KEY|Xiaomi MiMo' \
+  go run ./cmd/singularity-memory-go
+```
+
 The model catalog is daemon-owned state. `modelwalk` is the Charmbracelet
 management UI, and SF should consume `/v1/model-catalog/export/sf` rather than
 owning provider normalization itself. Charm Soft Serve can host a Git-backed

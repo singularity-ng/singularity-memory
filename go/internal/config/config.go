@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/storageprofile"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -24,10 +26,23 @@ const (
 	defaultRerankTopK        = 10
 	defaultStorageProfile    = "vchord"
 	defaultModelCatalogPath  = ".singularity-memory/model-catalog.json"
+	defaultSecretSource      = "env"
+	defaultSOPSSecretsPath   = "~/.dotfiles/secrets/api-keys.yaml"
+	defaultSOPSConfigPath    = "~/.dotfiles/.sops.yaml"
 	defaultRetainBatchTokens = 8000
 	defaultRRFK              = 60
 	defaultRRFWeights        = "1.0,1.0,0.5,0.3"
 )
+
+type ModelDiscoveryEndpoint struct {
+	ID         string
+	Name       string
+	BaseURL    string
+	APIKeyEnv  string
+	APIKey     string
+	KeySource  string
+	SecretHint string
+}
 
 type Config struct {
 	Host           string
@@ -52,6 +67,11 @@ type Config struct {
 
 	// Model catalog cache used by the HTTP API, SF export, and Charm TUI.
 	ModelCatalogPath string
+	// Live OpenAI-compatible model discovery endpoints. Keys are resolved from
+	// the configured secret source and never exposed by the HTTP API.
+	ModelDiscoveryEndpoints    []ModelDiscoveryEndpoint
+	ModelDiscoverySecretSource string
+	ModelDiscoverySecretError  string
 
 	// Feature flags parsed from SINGULARITY_FEATURE_* env vars
 	FeatureFlags map[string]bool
@@ -66,6 +86,18 @@ type Config struct {
 
 func FromEnv() Config {
 	profile, _ := storageprofile.ParseProfile(getenv("SINGULARITY_STORAGE_PROFILE", defaultStorageProfile))
+	secretSource := getenv("SINGULARITY_MODEL_DISCOVERY_SECRET_SOURCE", defaultSecretSource)
+	secretValues, secretErr := loadModelDiscoverySecrets(secretSource)
+	secretHint := ""
+	if secretErr != nil {
+		secretHint = secretErr.Error()
+	}
+	modelDiscoveryEndpoints := parseModelDiscoveryEndpoints(
+		os.Getenv("SINGULARITY_MODEL_DISCOVERY_ENDPOINTS"),
+		secretSource,
+		secretValues,
+		secretHint,
+	)
 
 	return Config{
 		Host:           getenv("SINGULARITY_HOST", defaultHost),
@@ -83,9 +115,12 @@ func FromEnv() Config {
 		RerankModel:      getenv("SINGULARITY_RERANK_MODEL", defaultRerankModel),
 		RerankTopK:       getenvInt("SINGULARITY_RERANK_TOP_K", defaultRerankTopK),
 
-		StorageProfile:   profile,
-		ModelCatalogPath: getenv("SINGULARITY_MODEL_CATALOG_PATH", defaultModelCatalogPath),
-		FeatureFlags:     parseFeatureFlags(),
+		StorageProfile:             profile,
+		ModelCatalogPath:           getenv("SINGULARITY_MODEL_CATALOG_PATH", defaultModelCatalogPath),
+		ModelDiscoveryEndpoints:    modelDiscoveryEndpoints,
+		ModelDiscoverySecretSource: secretSource,
+		ModelDiscoverySecretError:  secretHint,
+		FeatureFlags:               parseFeatureFlags(),
 
 		RetainBatchTokens: getenvInt("SINGULARITY_RETAIN_BATCH_TOKENS", defaultRetainBatchTokens),
 		RRFK:              getenvInt("SINGULARITY_RRF_K", defaultRRFK),
@@ -188,4 +223,168 @@ func parseRRFWeights(raw string) []float64 {
 		return []float64{1.0, 1.0, 0.5, 0.3}
 	}
 	return weights
+}
+
+func parseModelDiscoveryEndpoints(raw, secretSource string, secrets map[string]string, secretHint string) []ModelDiscoveryEndpoint {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	entries := strings.Split(raw, ";")
+	endpoints := make([]ModelDiscoveryEndpoint, 0, len(entries))
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		parts := strings.Split(entry, "|")
+		if len(parts) < 3 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		baseURL := strings.TrimSpace(parts[1])
+		apiKeyEnv := strings.TrimSpace(parts[2])
+		if id == "" || baseURL == "" {
+			continue
+		}
+		name := id
+		if len(parts) > 3 && strings.TrimSpace(parts[3]) != "" {
+			name = strings.TrimSpace(parts[3])
+		}
+		apiKey, keySource := resolveDiscoveryAPIKey(apiKeyEnv, secretSource, secrets)
+		endpoints = append(endpoints, ModelDiscoveryEndpoint{
+			ID:         id,
+			Name:       name,
+			BaseURL:    baseURL,
+			APIKeyEnv:  apiKeyEnv,
+			APIKey:     apiKey,
+			KeySource:  keySource,
+			SecretHint: secretHint,
+		})
+	}
+	return endpoints
+}
+
+func resolveDiscoveryAPIKey(apiKeyEnv, secretSource string, secrets map[string]string) (string, string) {
+	if apiKeyEnv == "" {
+		return "", ""
+	}
+	switch strings.ToLower(strings.TrimSpace(secretSource)) {
+	case "sf-sops":
+		return secrets[apiKeyEnv], "sf-sops"
+	case "sf-sops,env", "sf-sops+env":
+		if value := secrets[apiKeyEnv]; value != "" {
+			return value, "sf-sops"
+		}
+		return os.Getenv(apiKeyEnv), "env"
+	default:
+		return os.Getenv(apiKeyEnv), "env"
+	}
+}
+
+func loadModelDiscoverySecrets(secretSource string) (map[string]string, error) {
+	switch strings.ToLower(strings.TrimSpace(secretSource)) {
+	case "sf-sops", "sf-sops,env", "sf-sops+env":
+		return loadSFSOPSSecrets(
+			getenv("SINGULARITY_MODEL_DISCOVERY_SOPS_FILE", defaultSOPSSecretsPath),
+			getenv("SINGULARITY_MODEL_DISCOVERY_SOPS_CONFIG", defaultSOPSConfigPath),
+		)
+	default:
+		return map[string]string{}, nil
+	}
+}
+
+func loadSFSOPSSecrets(secretsPath, configPath string) (map[string]string, error) {
+	if _, err := exec.LookPath("sops"); err != nil {
+		return map[string]string{}, fmt.Errorf("sops not found")
+	}
+	args := []string{}
+	if configPath != "" {
+		args = append(args, "--config", expandHome(configPath))
+	}
+	args = append(args, "-d", expandHome(secretsPath))
+	out, err := exec.Command("sops", args...).Output()
+	if err != nil {
+		return map[string]string{}, fmt.Errorf("sf-sops decrypt failed")
+	}
+	return parseSFSOPSSecrets(out)
+}
+
+func parseSFSOPSSecrets(data []byte) (map[string]string, error) {
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	sf, ok := asMap(doc["sf"])
+	if !ok {
+		return out, nil
+	}
+	for key, value := range sf {
+		if key == "env" || key == "providers" {
+			continue
+		}
+		addScalarSecret(out, key, value)
+	}
+	if env, ok := asMap(sf["env"]); ok {
+		for key, value := range env {
+			addScalarSecret(out, key, value)
+		}
+	}
+	if providers, ok := asMap(sf["providers"]); ok {
+		for _, rawProvider := range providers {
+			provider, ok := asMap(rawProvider)
+			if !ok {
+				continue
+			}
+			env, ok := asMap(provider["env"])
+			if !ok {
+				continue
+			}
+			for key, value := range env {
+				addScalarSecret(out, key, value)
+			}
+		}
+	}
+	return out, nil
+}
+
+func asMap(value any) (map[string]any, bool) {
+	if typed, ok := value.(map[string]any); ok {
+		return typed, true
+	}
+	return nil, false
+}
+
+func addScalarSecret(out map[string]string, key string, value any) {
+	key = strings.TrimSpace(key)
+	if key == "" || value == nil {
+		return
+	}
+	switch v := value.(type) {
+	case string:
+		if v != "" {
+			out[key] = v
+		}
+	case int, int64, float64, bool:
+		out[key] = fmt.Sprint(v)
+	}
+}
+
+func expandHome(path string) string {
+	if path == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home
+	}
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return home + path[1:]
+	}
+	return path
 }

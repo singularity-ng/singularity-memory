@@ -6,7 +6,15 @@ import (
 	"github.com/singularity-ng/singularity-memory/go/internal/storageprofile"
 )
 
+func clearModelDiscoveryEnv(t *testing.T) {
+	t.Setenv("SINGULARITY_MODEL_DISCOVERY_ENDPOINTS", "")
+	t.Setenv("SINGULARITY_MODEL_DISCOVERY_SECRET_SOURCE", "")
+	t.Setenv("SINGULARITY_MODEL_DISCOVERY_SOPS_FILE", "")
+	t.Setenv("SINGULARITY_MODEL_DISCOVERY_SOPS_CONFIG", "")
+}
+
 func TestFromEnvDefaults(t *testing.T) {
+	clearModelDiscoveryEnv(t)
 	t.Setenv("SINGULARITY_HOST", "")
 	t.Setenv("SINGULARITY_PORT", "")
 	t.Setenv("SINGULARITY_DATABASE_URL", "")
@@ -52,9 +60,13 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.StorageProfile != storageprofile.VCHORD {
 		t.Fatalf("StorageProfile = %q", cfg.StorageProfile)
 	}
+	if len(cfg.ModelDiscoveryEndpoints) != 0 {
+		t.Fatalf("ModelDiscoveryEndpoints = %+v", cfg.ModelDiscoveryEndpoints)
+	}
 }
 
 func TestFromEnvOverrides(t *testing.T) {
+	clearModelDiscoveryEnv(t)
 	t.Setenv("SINGULARITY_HOST", "0.0.0.0")
 	t.Setenv("SINGULARITY_PORT", "9999")
 	t.Setenv("SINGULARITY_DATABASE_URL", "postgres://example")
@@ -109,6 +121,7 @@ func TestFromEnvOverrides(t *testing.T) {
 }
 
 func TestFeatureFlagsParsing(t *testing.T) {
+	clearModelDiscoveryEnv(t)
 	t.Setenv("SINGULARITY_FEATURE_BANKS", "true")
 	t.Setenv("SINGULARITY_FEATURE_OBSERVATIONS", "1")
 	t.Setenv("SINGULARITY_FEATURE_WORKER", "false")
@@ -133,6 +146,7 @@ func TestFeatureFlagsParsing(t *testing.T) {
 }
 
 func TestFeatureFlagsDefaultsToFalse(t *testing.T) {
+	clearModelDiscoveryEnv(t)
 	// Ensure no SINGULARITY_FEATURE_* vars are set
 	for _, e := range []string{
 		"SINGULARITY_FEATURE_BANKS",
@@ -145,5 +159,61 @@ func TestFeatureFlagsDefaultsToFalse(t *testing.T) {
 	cfg := FromEnv()
 	if len(cfg.FeatureFlags) != 0 {
 		t.Fatalf("expected no feature flags set, got %v", cfg.FeatureFlags)
+	}
+}
+
+func TestModelDiscoveryEndpointsFromEnv(t *testing.T) {
+	clearModelDiscoveryEnv(t)
+	t.Setenv("KIMI_API_KEY", "test-key")
+	t.Setenv("SINGULARITY_MODEL_DISCOVERY_ENDPOINTS", "kimi-coding|https://api.kimi.com/coding/v1|KIMI_API_KEY|Kimi Coding;ollama|http://localhost:11434/v1||Local Ollama")
+
+	cfg := FromEnv()
+	if len(cfg.ModelDiscoveryEndpoints) != 2 {
+		t.Fatalf("endpoint count = %d", len(cfg.ModelDiscoveryEndpoints))
+	}
+	first := cfg.ModelDiscoveryEndpoints[0]
+	if first.ID != "kimi-coding" || first.BaseURL != "https://api.kimi.com/coding/v1" || first.APIKey != "test-key" {
+		t.Fatalf("unexpected first endpoint: %+v", first)
+	}
+	if first.KeySource != "env" {
+		t.Fatalf("KeySource = %q", first.KeySource)
+	}
+	second := cfg.ModelDiscoveryEndpoints[1]
+	if second.ID != "ollama" || second.APIKeyEnv != "" || second.APIKey != "" {
+		t.Fatalf("unexpected second endpoint: %+v", second)
+	}
+}
+
+func TestParseSFSOPSSecretsOnlyReadsSFNamespace(t *testing.T) {
+	secrets, err := parseSFSOPSSecrets([]byte(`
+openrouter:
+  OPENROUTER_API_KEY: global-openrouter
+sf:
+  OPENCODE_API_KEY: opencode-top
+  env:
+    KIMI_API_KEY: kimi
+    EMPTY_KEY: ""
+  providers:
+    zai:
+      env:
+        ZAI_API_KEY: zai
+    xiaomi:
+      env:
+        XIAOMI_API_KEY: xiaomi
+`))
+	if err != nil {
+		t.Fatalf("parseSFSOPSSecrets returned error: %v", err)
+	}
+	if secrets["OPENROUTER_API_KEY"] != "" {
+		t.Fatalf("read top-level OpenRouter key: %+v", secrets)
+	}
+	if secrets["OPENCODE_API_KEY"] != "opencode-top" {
+		t.Fatalf("OPENCODE_API_KEY = %q", secrets["OPENCODE_API_KEY"])
+	}
+	if secrets["KIMI_API_KEY"] != "kimi" || secrets["ZAI_API_KEY"] != "zai" || secrets["XIAOMI_API_KEY"] != "xiaomi" {
+		t.Fatalf("missing sf scoped secrets: %+v", secrets)
+	}
+	if _, ok := secrets["EMPTY_KEY"]; ok {
+		t.Fatalf("empty key should be ignored")
 	}
 }
