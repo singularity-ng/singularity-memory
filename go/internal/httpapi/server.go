@@ -19,6 +19,9 @@ import (
 type Store interface {
 	Ping(context.Context) error
 	ListBanks(context.Context) ([]store.BankListItem, error)
+	GetBank(ctx context.Context, bankID string) (*store.BankProfile, error)
+	UpdateBank(ctx context.Context, bankID string, name *string, mission *string, disposition map[string]int) (*store.BankProfile, error)
+	DeleteBank(ctx context.Context, bankID string) (int, error)
 }
 
 type Dependencies struct {
@@ -40,6 +43,10 @@ func NewServer(deps Dependencies) http.Handler {
 	r.Get("/healthz", server.healthz)
 	r.Get("/v1/banks", server.listBanks)
 	r.Get("/v1/default/banks", server.listBanks)
+	r.Get("/v1/default/banks/{bank_id}/profile", server.getBank)
+	r.Put("/v1/default/banks/{bank_id}", server.updateBank)
+	r.Patch("/v1/default/banks/{bank_id}", server.updateBank)
+	r.Delete("/v1/default/banks/{bank_id}", server.deleteBank)
 
 	return r
 }

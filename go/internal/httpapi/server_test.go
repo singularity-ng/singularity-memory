@@ -25,6 +25,18 @@ func (f fakeStore) ListBanks(context.Context) ([]store.BankListItem, error) {
 	return f.banks, nil
 }
 
+func (f fakeStore) GetBank(context.Context, string) (*store.BankProfile, error) {
+	return nil, nil
+}
+
+func (f fakeStore) UpdateBank(context.Context, string, *string, *string, map[string]int) (*store.BankProfile, error) {
+	return nil, nil
+}
+
+func (f fakeStore) DeleteBank(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {
 	handler := NewServer(Dependencies{Config: config.Config{DatabaseSchema: "public"}})
 
