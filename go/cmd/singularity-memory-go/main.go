@@ -86,12 +86,28 @@ func run() error {
 		Logger:       log.Default(),
 		EmbedClient:  embedClient,
 		RerankClient: rerankClient,
+		Version:      version,
 	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr(),
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	// Log enabled feature flags at startup
+	if len(cfg.FeatureFlags) > 0 {
+		enabled := make([]string, 0, len(cfg.FeatureFlags))
+		for name, on := range cfg.FeatureFlags {
+			if on {
+				enabled = append(enabled, name)
+			}
+		}
+		if len(enabled) > 0 {
+			log.Info("feature flags enabled", "flags", enabled)
+		} else {
+			log.Info("feature flags: none enabled")
+		}
 	}
 
 	errs := make(chan error, 1)

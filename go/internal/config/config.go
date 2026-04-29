@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/storageprofile"
 )
@@ -41,6 +42,9 @@ type Config struct {
 
 	// Storage profile
 	StorageProfile storageprofile.Profile
+
+	// Feature flags parsed from SINGULARITY_FEATURE_* env vars
+	FeatureFlags map[string]bool
 }
 
 func FromEnv() Config {
@@ -63,6 +67,7 @@ func FromEnv() Config {
 		RerankTopK:       getenvInt("SINGULARITY_RERANK_TOP_K", defaultRerankTopK),
 
 		StorageProfile: profile,
+		FeatureFlags:   parseFeatureFlags(),
 	}
 }
 
@@ -115,4 +120,28 @@ func getenvInt(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+// parseFeatureFlags reads all environment variables starting with SINGULARITY_FEATURE_
+// and returns a map of flag names to boolean values. All flags default to false.
+func parseFeatureFlags() map[string]bool {
+	flags := make(map[string]bool)
+	prefix := "SINGULARITY_FEATURE_"
+	for _, e := range os.Environ() {
+		pair := strings.SplitN(e, "=", 2)
+		if len(pair) != 2 {
+			continue
+		}
+		key := pair[0]
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		name := strings.ToLower(strings.TrimPrefix(key, prefix))
+		val, err := strconv.ParseBool(pair[1])
+		if err != nil {
+			continue
+		}
+		flags[name] = val
+	}
+	return flags
 }

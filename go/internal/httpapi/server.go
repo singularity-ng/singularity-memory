@@ -25,11 +25,12 @@ type Store interface {
 }
 
 type Dependencies struct {
-	Config      config.Config
-	Store       Store
-	Logger      *log.Logger
-	EmbedClient *embed.Client
+	Config       config.Config
+	Store        Store
+	Logger       *log.Logger
+	EmbedClient  *embed.Client
 	RerankClient *rerank.Client
+	Version      string
 }
 
 func NewServer(deps Dependencies) http.Handler {
@@ -41,12 +42,18 @@ func NewServer(deps Dependencies) http.Handler {
 	server := &server{deps: deps}
 
 	r.Get("/healthz", server.healthz)
-	r.Get("/v1/banks", server.listBanks)
-	r.Get("/v1/default/banks", server.listBanks)
-	r.Get("/v1/default/banks/{bank_id}/profile", server.getBank)
-	r.Put("/v1/default/banks/{bank_id}", server.updateBank)
-	r.Patch("/v1/default/banks/{bank_id}", server.updateBank)
-	r.Delete("/v1/default/banks/{bank_id}", server.deleteBank)
+	r.Get("/version", server.version)
+
+	// Bank endpoints gated by "banks" feature flag
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(featureFlagMiddleware(deps.Config.FeatureFlags, "banks"))
+		r.Get("/banks", server.listBanks)
+		r.Get("/default/banks", server.listBanks)
+		r.Get("/default/banks/{bank_id}/profile", server.getBank)
+		r.Put("/default/banks/{bank_id}", server.updateBank)
+		r.Patch("/default/banks/{bank_id}", server.updateBank)
+		r.Delete("/default/banks/{bank_id}", server.deleteBank)
+	})
 
 	return r
 }
@@ -75,15 +82,42 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusServiceUnavailable
 	}
 	writeJSON(w, status, map[string]any{
-		"ok":               ok,
-		"service":          "singularity-memory-go",
-		"database":         db,
-		"database_schema":  s.deps.Config.DatabaseSchema,
-		"mcp_enabled":      s.deps.Config.MCPEnabled,
-		"storage_profile":  s.deps.Config.StorageProfile.String(),
-		"embed_configured": s.deps.Config.EmbedGatewayURL != "",
+		"ok":                ok,
+		"service":           "singularity-memory-go",
+		"database":          db,
+		"database_schema":   s.deps.Config.DatabaseSchema,
+		"mcp_enabled":       s.deps.Config.MCPEnabled,
+		"storage_profile":   s.deps.Config.StorageProfile.String(),
+		"embed_configured":  s.deps.Config.EmbedGatewayURL != "",
 		"rerank_configured": s.deps.Config.RerankGatewayURL != "",
 	})
+}
+
+func (s *server) version(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"api_version": s.deps.Version,
+		"features": map[string]bool{
+			"observations":    s.deps.Config.FeatureFlags["observations"],
+			"mcp":             s.deps.Config.MCPEnabled,
+			"worker":          s.deps.Config.FeatureFlags["worker"],
+			"bank_config_api": s.deps.Config.FeatureFlags["bank_config_api"],
+			"file_upload_api": s.deps.Config.FeatureFlags["file_upload_api"],
+		},
+	})
+}
+
+// featureFlagMiddleware returns a middleware that returns 404 if the named
+// feature flag is not enabled. All flags default to false.
+func featureFlagMiddleware(flags map[string]bool, name string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !flags[name] {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

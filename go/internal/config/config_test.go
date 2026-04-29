@@ -107,3 +107,43 @@ func TestFromEnvOverrides(t *testing.T) {
 		t.Fatalf("StorageProfile = %q", cfg.StorageProfile)
 	}
 }
+
+func TestFeatureFlagsParsing(t *testing.T) {
+	t.Setenv("SINGULARITY_FEATURE_BANKS", "true")
+	t.Setenv("SINGULARITY_FEATURE_OBSERVATIONS", "1")
+	t.Setenv("SINGULARITY_FEATURE_WORKER", "false")
+	t.Setenv("SINGULARITY_FEATURE_FILE_UPLOAD_API", "invalid")
+
+	cfg := FromEnv()
+	if !cfg.FeatureFlags["banks"] {
+		t.Fatalf("expected banks flag true")
+	}
+	if !cfg.FeatureFlags["observations"] {
+		t.Fatalf("expected observations flag true")
+	}
+	if cfg.FeatureFlags["worker"] {
+		t.Fatalf("expected worker flag false")
+	}
+	if cfg.FeatureFlags["file_upload_api"] {
+		t.Fatalf("expected file_upload_api flag false (invalid value)")
+	}
+	if _, ok := cfg.FeatureFlags["nonexistent"]; ok {
+		t.Fatalf("expected nonexistent flag not present")
+	}
+}
+
+func TestFeatureFlagsDefaultsToFalse(t *testing.T) {
+	// Ensure no SINGULARITY_FEATURE_* vars are set
+	for _, e := range []string{
+		"SINGULARITY_FEATURE_BANKS",
+		"SINGULARITY_FEATURE_OBSERVATIONS",
+		"SINGULARITY_FEATURE_WORKER",
+	} {
+		t.Setenv(e, "")
+	}
+
+	cfg := FromEnv()
+	if len(cfg.FeatureFlags) != 0 {
+		t.Fatalf("expected no feature flags set, got %v", cfg.FeatureFlags)
+	}
+}

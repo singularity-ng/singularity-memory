@@ -55,7 +55,7 @@ func (f fakeStore) DeleteBank(_ context.Context, _ string) (int, error) {
 }
 
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {
-	handler := NewServer(Dependencies{Config: config.Config{DatabaseSchema: "public"}})
+	handler := NewServer(Dependencies{Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}}})
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
@@ -71,6 +71,7 @@ func TestHealthzReportsStorageProfile(t *testing.T) {
 		Config: config.Config{
 			DatabaseSchema: "public",
 			StorageProfile: storageprofile.PGVECTOR,
+			FeatureFlags:   map[string]bool{"banks": true},
 		},
 	})
 
@@ -104,6 +105,7 @@ func TestHealthzWithClientsConfigured(t *testing.T) {
 			StorageProfile:   storageprofile.VCHORD,
 			EmbedGatewayURL:  "http://embed:8080",
 			RerankGatewayURL: "http://rerank:8080",
+			FeatureFlags:     map[string]bool{"banks": true},
 		},
 	})
 
@@ -130,7 +132,7 @@ func TestListBanksReturnsCompatibilityEnvelope(t *testing.T) {
 	disposition := map[string]int{"skepticism": 3, "literalism": 3, "empathy": 3}
 	name := "Alice"
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store: fakeStore{
 			banks: []store.BankListItem{{
 				BankID:      "user123",
@@ -164,7 +166,7 @@ func TestListBanksReturnsCompatibilityEnvelope(t *testing.T) {
 
 func TestListBanksUnscopedAlias(t *testing.T) {
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store:  fakeStore{banks: []store.BankListItem{}},
 	})
 
@@ -180,7 +182,7 @@ func TestListBanksUnscopedAlias(t *testing.T) {
 func TestGetBankProfile(t *testing.T) {
 	bg := "test mission"
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store: fakeStore{
 			bank: &store.BankProfile{
 				BankID:      "user123",
@@ -233,7 +235,7 @@ func TestGetBankProfile(t *testing.T) {
 
 func TestGetBankProfileAutoCreates(t *testing.T) {
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store:  fakeStore{bank: nil, bankErr: nil},
 	})
 
@@ -270,7 +272,7 @@ func TestGetBankProfileAutoCreates(t *testing.T) {
 func TestUpdateBankPut(t *testing.T) {
 	bg := "new mission"
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store: fakeStore{
 			updateBankResult: &store.BankProfile{
 				BankID:      "user123",
@@ -307,7 +309,7 @@ func TestUpdateBankPut(t *testing.T) {
 func TestUpdateBankPatchDisposition(t *testing.T) {
 	bg := ""
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store: fakeStore{
 			updateBankResult: &store.BankProfile{
 				BankID:      "user123",
@@ -346,7 +348,7 @@ func TestUpdateBankPatchDisposition(t *testing.T) {
 func TestUpdateBankEmptyBody(t *testing.T) {
 	bg := ""
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store: fakeStore{
 			updateBankResult: &store.BankProfile{
 				BankID:      "user123",
@@ -371,7 +373,7 @@ func TestUpdateBankEmptyBody(t *testing.T) {
 
 func TestDeleteBank(t *testing.T) {
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store:  fakeStore{deleteCount: 3},
 	})
 
@@ -402,7 +404,7 @@ func TestDeleteBank(t *testing.T) {
 
 func TestDeleteBankNotFound(t *testing.T) {
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store:  fakeStore{deleteCount: 0},
 	})
 
@@ -429,7 +431,7 @@ func TestDeleteBankNotFound(t *testing.T) {
 
 func TestBankHandlersWithoutStore(t *testing.T) {
 	handler := NewServer(Dependencies{
-		Config: config.Config{DatabaseSchema: "public"},
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
 		Store:  nil,
 	})
 
@@ -461,5 +463,86 @@ func TestBankHandlersWithoutStore(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("%s %s: expected 503, got %d body=%s", ep.method, ep.path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+func TestVersionEndpoint(t *testing.T) {
+	handler := NewServer(Dependencies{
+		Config:  config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"observations": true, "worker": true}},
+		Version: "0.4.0-test",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/version", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["api_version"] != "0.4.0-test" {
+		t.Fatalf("expected api_version 0.4.0-test, got %v", body["api_version"])
+	}
+	features, ok := body["features"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected features object, got %T", body["features"])
+	}
+	if features["observations"] != true {
+		t.Fatalf("expected observations true, got %v", features["observations"])
+	}
+	if features["worker"] != true {
+		t.Fatalf("expected worker true, got %v", features["worker"])
+	}
+	if features["bank_config_api"] != false {
+		t.Fatalf("expected bank_config_api false, got %v", features["bank_config_api"])
+	}
+	if features["mcp"] != false {
+		t.Fatalf("expected mcp false, got %v", features["mcp"])
+	}
+	if features["file_upload_api"] != false {
+		t.Fatalf("expected file_upload_api false, got %v", features["file_upload_api"])
+	}
+}
+
+func TestFeatureFlagDisabledReturns404(t *testing.T) {
+	handler := NewServer(Dependencies{
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": false}},
+		Store:  fakeStore{banks: []store.BankListItem{}},
+	})
+
+	endpoints := []string{
+		"/v1/banks",
+		"/v1/default/banks",
+		"/v1/default/banks/user123/profile",
+		"/v1/default/banks/user123",
+	}
+
+	for _, path := range endpoints {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: expected 404 when banks flag disabled, got %d", path, rec.Code)
+		}
+	}
+}
+
+func TestFeatureFlagEnabledAllowsAccess(t *testing.T) {
+	handler := NewServer(Dependencies{
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
+		Store:  fakeStore{banks: []store.BankListItem{}},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/banks", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 when banks flag enabled, got %d", rec.Code)
 	}
 }
