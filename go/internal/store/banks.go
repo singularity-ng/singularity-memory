@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/singularity-ng/singularity-memory/go/internal/storageprofile"
 )
 
 type BankListItem struct {
@@ -35,15 +37,20 @@ var defaultDisposition = map[string]int{
 	"empathy":    3,
 }
 
-var bankIndexFactTypes = map[string]string{
-	"world":        "worl",
-	"experience":   "expr",
-	"observation":  "obsv",
+type bankIndexFactType struct {
+	factType string
+	prefix   string
 }
 
-func bankIndexName(ft, internalID string) string {
+var bankIndexFactTypes = []bankIndexFactType{
+	{factType: "world", prefix: "worl"},
+	{factType: "experience", prefix: "expr"},
+	{factType: "observation", prefix: "obsv"},
+}
+
+func bankIndexName(ft bankIndexFactType, internalID string) string {
 	hexOnly := strings.ReplaceAll(internalID, "-", "")
-	return fmt.Sprintf("idx_mu_emb_%s_%s", bankIndexFactTypes[ft], hexOnly[:16])
+	return fmt.Sprintf("idx_mu_emb_%s_%s", ft.prefix, hexOnly[:16])
 }
 
 func (s *Store) GetBank(ctx context.Context, bankID string) (*BankProfile, error) {
@@ -203,9 +210,9 @@ func (s *Store) DeleteBank(ctx context.Context, bankID string) (deletedCount int
 
 	// Post-commit: drop vector indexes. Failures are logged but not returned.
 	if internalID != nil {
-		for ft := range bankIndexFactTypes {
+		for _, ft := range bankIndexFactTypes {
 			idx := bankIndexName(ft, *internalID)
-			_, dropErr := s.pool.Exec(ctx, `DROP INDEX IF EXISTS `+s.schema+`.`+idx)
+			_, dropErr := s.pool.Exec(ctx, `DROP INDEX IF EXISTS `+s.index(idx))
 			if dropErr != nil {
 				// Observability: log but do not fail the overall delete.
 				// In a real service we'd use s.deps.Logger here; for now we swallow.
@@ -218,18 +225,40 @@ func (s *Store) DeleteBank(ctx context.Context, bankID string) (deletedCount int
 }
 
 func (s *Store) createBankVectorIndexes(ctx context.Context, bankID, internalID string) error {
-	escaped := strings.ReplaceAll(bankID, "'", "''")
-	for ft := range bankIndexFactTypes {
-		idx := bankIndexName(ft, internalID)
-		query := fmt.Sprintf(
-			"CREATE INDEX IF NOT EXISTS %s ON %s USING hnsw (embedding vector_cosine_ops) WHERE fact_type = '%s' AND bank_id = '%s'",
-			idx, s.table("memory_units"), ft, escaped,
-		)
+	for _, ft := range bankIndexFactTypes {
+		query := s.bankVectorIndexSQL(bankID, internalID, ft)
 		if _, err := s.pool.Exec(ctx, query); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (s *Store) bankVectorIndexSQL(bankID, internalID string, ft bankIndexFactType) string {
+	indexMethod := "hnsw"
+	opclass := "vector_cosine_ops"
+	profile := s.storageProfile
+	if profile == "" {
+		profile = storageprofile.VCHORD
+	}
+	if profile == storageprofile.VCHORD {
+		indexMethod = "vchordrq"
+		opclass = "vector_l2_ops"
+	}
+
+	return fmt.Sprintf(
+		"CREATE INDEX IF NOT EXISTS %s ON %s USING %s (embedding %s) WHERE fact_type = %s AND bank_id = %s",
+		s.index(bankIndexName(ft, internalID)),
+		s.table("memory_units"),
+		indexMethod,
+		opclass,
+		sqlStringLiteral(ft.factType),
+		sqlStringLiteral(bankID),
+	)
+}
+
+func sqlStringLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func mustJSON(v any) string {

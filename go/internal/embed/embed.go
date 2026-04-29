@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -98,14 +99,15 @@ func (c *Client) embedBatch(ctx context.Context, inputs []string, baseIndex int)
 		return nil, fmt.Errorf("marshal embed request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.EmbedGatewayURL+"/v1/embeddings", bytes.NewReader(payload))
+	url := endpointURL(c.cfg.EmbedGatewayURL, "embeddings")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("create embed request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	c.logger.Info("embed request",
-		"url", c.cfg.EmbedGatewayURL+"/v1/embeddings",
+		"url", url,
 		"model", c.cfg.EmbedModel,
 		"batch_size", len(inputs),
 		"dimensions", c.cfg.EmbedDimensions,
@@ -113,7 +115,7 @@ func (c *Client) embedBatch(ctx context.Context, inputs []string, baseIndex int)
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.logger.Error("embed request failed", "error", err, "url", c.cfg.EmbedGatewayURL+"/v1/embeddings", "model", c.cfg.EmbedModel)
+		c.logger.Error("embed request failed", "error", err, "url", url, "model", c.cfg.EmbedModel)
 		return nil, fmt.Errorf("embed request failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -128,7 +130,7 @@ func (c *Client) embedBatch(ctx context.Context, inputs []string, baseIndex int)
 	if resp.StatusCode != http.StatusOK {
 		c.logger.Error("embed non-OK response",
 			"status", resp.StatusCode,
-			"url", c.cfg.EmbedGatewayURL+"/v1/embeddings",
+			"url", url,
 			"model", c.cfg.EmbedModel,
 			"latency_ms", latency.Milliseconds(),
 		)
@@ -162,4 +164,12 @@ func (c *Client) embedBatch(ctx context.Context, inputs []string, baseIndex int)
 	)
 
 	return vectors, nil
+}
+
+func endpointURL(baseURL, operation string) string {
+	base := strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/" + operation
+	}
+	return base + "/v1/" + operation
 }

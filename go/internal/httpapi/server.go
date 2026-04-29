@@ -12,6 +12,7 @@ import (
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
 	"github.com/singularity-ng/singularity-memory/go/internal/embed"
+	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
 )
@@ -22,6 +23,22 @@ type Store interface {
 	GetBank(ctx context.Context, bankID string) (*store.BankProfile, error)
 	UpdateBank(ctx context.Context, bankID string, name *string, mission *string, disposition map[string]int) (*store.BankProfile, error)
 	DeleteBank(ctx context.Context, bankID string) (int, error)
+
+	// Memory unit CRUD
+	InsertMemoryUnit(ctx context.Context, bankID string, unit *store.MemoryUnit) (string, error)
+	GetMemoryUnit(ctx context.Context, bankID string, unitID string) (*store.MemoryUnit, error)
+	DeleteMemoryUnit(ctx context.Context, bankID string, unitID string) error
+	ListMemoryUnits(ctx context.Context, bankID string, limit int, offset int) ([]store.MemoryUnit, error)
+
+	// Memory links
+	InsertMemoryLink(ctx context.Context, link *store.MemoryLink) error
+
+	// Entity observations
+	GetEntityObservations(ctx context.Context, bankID string, entityName string, limit int) ([]store.EntityObservation, error)
+
+	// Chunk storage
+	InsertChunk(ctx context.Context, bankID string, chunk *store.Chunk) (string, error)
+	GetChunks(ctx context.Context, bankID string, documentID string) ([]store.Chunk, error)
 }
 
 type Dependencies struct {
@@ -30,7 +47,9 @@ type Dependencies struct {
 	Logger       *log.Logger
 	EmbedClient  *embed.Client
 	RerankClient *rerank.Client
+	ModelCatalog *modelcatalog.Service
 	Version      string
+	OpenAPIJSON  []byte
 }
 
 func NewServer(deps Dependencies) http.Handler {
@@ -43,6 +62,7 @@ func NewServer(deps Dependencies) http.Handler {
 
 	r.Get("/healthz", server.healthz)
 	r.Get("/version", server.version)
+	r.Get("/openapi.json", server.openapi)
 
 	// Bank endpoints gated by "banks" feature flag
 	r.Route("/v1", func(r chi.Router) {
@@ -50,9 +70,16 @@ func NewServer(deps Dependencies) http.Handler {
 		r.Get("/banks", server.listBanks)
 		r.Get("/default/banks", server.listBanks)
 		r.Get("/default/banks/{bank_id}/profile", server.getBank)
+		r.Put("/default/banks/{bank_id}/profile", server.updateBank)
 		r.Put("/default/banks/{bank_id}", server.updateBank)
 		r.Patch("/default/banks/{bank_id}", server.updateBank)
 		r.Delete("/default/banks/{bank_id}", server.deleteBank)
+	})
+
+	r.Route("/v1/model-catalog", func(r chi.Router) {
+		r.Get("/", server.getModelCatalog)
+		r.Post("/sync", server.syncModelCatalog)
+		r.Get("/export/sf", server.exportSFModelCatalog)
 	})
 
 	return r
@@ -102,6 +129,7 @@ func (s *server) version(w http.ResponseWriter, r *http.Request) {
 			"worker":          s.deps.Config.FeatureFlags["worker"],
 			"bank_config_api": s.deps.Config.FeatureFlags["bank_config_api"],
 			"file_upload_api": s.deps.Config.FeatureFlags["file_upload_api"],
+			"model_catalog":   s.deps.ModelCatalog != nil,
 		},
 	})
 }

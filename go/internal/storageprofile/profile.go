@@ -9,19 +9,16 @@ import (
 type Profile string
 
 const (
-	PG0      Profile = "pg0"
 	PGVECTOR Profile = "pgvector"
 	VCHORD   Profile = "vchord"
 )
 
 // AllProfiles is the set of supported profiles for iteration and validation.
-var AllProfiles = []Profile{PG0, PGVECTOR, VCHORD}
+var AllProfiles = []Profile{PGVECTOR, VCHORD}
 
 // ParseProfile resolves a string to a known Profile, case-insensitive.
 func ParseProfile(s string) (Profile, error) {
 	switch strings.ToLower(s) {
-	case "pg0":
-		return PG0, nil
 	case "pgvector":
 		return PGVECTOR, nil
 	case "vchord":
@@ -52,11 +49,12 @@ func (p Profile) SupportsBM25() bool {
 }
 
 // DefaultDimensions returns the default embedding dimension for the profile.
-// Profiles that do not store vectors return 0.
 func (p Profile) DefaultDimensions() int {
 	switch p {
-	case PGVECTOR, VCHORD:
-		return 768
+	case PGVECTOR:
+		return 2000
+	case VCHORD:
+		return 2560
 	default:
 		return 0
 	}

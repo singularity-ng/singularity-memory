@@ -79,6 +79,24 @@ func TestEmbed_NormalThreeInputs(t *testing.T) {
 	}
 }
 
+func TestEndpointURL(t *testing.T) {
+	tests := []struct {
+		base string
+		want string
+	}{
+		{"https://llm-gateway.centralcloud.com", "https://llm-gateway.centralcloud.com/v1/embeddings"},
+		{"https://llm-gateway.centralcloud.com/", "https://llm-gateway.centralcloud.com/v1/embeddings"},
+		{"https://llm-gateway.centralcloud.com/v1", "https://llm-gateway.centralcloud.com/v1/embeddings"},
+		{"https://llm-gateway.centralcloud.com/v1/", "https://llm-gateway.centralcloud.com/v1/embeddings"},
+	}
+
+	for _, tt := range tests {
+		if got := endpointURL(tt.base, "embeddings"); got != tt.want {
+			t.Fatalf("endpointURL(%q) = %q, want %q", tt.base, got, tt.want)
+		}
+	}
+}
+
 func TestEmbed_VectorCountMismatch(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := embedResponse{

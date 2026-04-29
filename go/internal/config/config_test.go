@@ -12,11 +12,11 @@ func TestFromEnvDefaults(t *testing.T) {
 	t.Setenv("SINGULARITY_DATABASE_URL", "")
 	t.Setenv("SINGULARITY_DATABASE_SCHEMA", "")
 	t.Setenv("SINGULARITY_MCP_ENABLED", "")
-	t.Setenv("SINGULARITY_EMBED_GATEWAY_URL", "")
-	t.Setenv("SINGULARITY_EMBED_MODEL", "")
-	t.Setenv("SINGULARITY_EMBED_DIMENSIONS", "")
+	t.Setenv("SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL", "")
+	t.Setenv("SINGULARITY_EMBEDDINGS_OPENAI_MODEL", "")
+	t.Setenv("SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS", "")
 	t.Setenv("SINGULARITY_EMBED_BATCH_SIZE", "")
-	t.Setenv("SINGULARITY_RERANK_GATEWAY_URL", "")
+	t.Setenv("SINGULARITY_RERANK_OPENAI_BASE_URL", "")
 	t.Setenv("SINGULARITY_RERANK_MODEL", "")
 	t.Setenv("SINGULARITY_RERANK_TOP_K", "")
 	t.Setenv("SINGULARITY_STORAGE_PROFILE", "")
@@ -34,10 +34,10 @@ func TestFromEnvDefaults(t *testing.T) {
 	if !cfg.MCPEnabled {
 		t.Fatalf("MCPEnabled = false")
 	}
-	if cfg.EmbedModel != "text-embedding-3-small" {
+	if cfg.EmbedModel != "qwen/qwen3-embedding-4b" {
 		t.Fatalf("EmbedModel = %q", cfg.EmbedModel)
 	}
-	if cfg.EmbedDimensions != 768 {
+	if cfg.EmbedDimensions != 0 {
 		t.Fatalf("EmbedDimensions = %d", cfg.EmbedDimensions)
 	}
 	if cfg.EmbedBatchSize != 32 {
@@ -49,7 +49,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.RerankTopK != 10 {
 		t.Fatalf("RerankTopK = %d", cfg.RerankTopK)
 	}
-	if cfg.StorageProfile != storageprofile.PGVECTOR {
+	if cfg.StorageProfile != storageprofile.VCHORD {
 		t.Fatalf("StorageProfile = %q", cfg.StorageProfile)
 	}
 }
@@ -60,11 +60,11 @@ func TestFromEnvOverrides(t *testing.T) {
 	t.Setenv("SINGULARITY_DATABASE_URL", "postgres://example")
 	t.Setenv("SINGULARITY_DATABASE_SCHEMA", "tenant_a")
 	t.Setenv("SINGULARITY_MCP_ENABLED", "false")
-	t.Setenv("SINGULARITY_EMBED_GATEWAY_URL", "http://embed:8080")
-	t.Setenv("SINGULARITY_EMBED_MODEL", "text-embedding-3-large")
-	t.Setenv("SINGULARITY_EMBED_DIMENSIONS", "1536")
+	t.Setenv("SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL", "https://llm-gateway.centralcloud.com/v1")
+	t.Setenv("SINGULARITY_EMBEDDINGS_OPENAI_MODEL", "text-embedding-3-large")
+	t.Setenv("SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS", "1536")
 	t.Setenv("SINGULARITY_EMBED_BATCH_SIZE", "64")
-	t.Setenv("SINGULARITY_RERANK_GATEWAY_URL", "http://rerank:8080")
+	t.Setenv("SINGULARITY_RERANK_OPENAI_BASE_URL", "https://llm-gateway.centralcloud.com/v1")
 	t.Setenv("SINGULARITY_RERANK_MODEL", "bge-reranker-large")
 	t.Setenv("SINGULARITY_RERANK_TOP_K", "20")
 	t.Setenv("SINGULARITY_STORAGE_PROFILE", "vchord")
@@ -82,7 +82,7 @@ func TestFromEnvOverrides(t *testing.T) {
 	if cfg.MCPEnabled {
 		t.Fatalf("MCPEnabled = true")
 	}
-	if cfg.EmbedGatewayURL != "http://embed:8080" {
+	if cfg.EmbedGatewayURL != "https://llm-gateway.centralcloud.com/v1" {
 		t.Fatalf("EmbedGatewayURL = %q", cfg.EmbedGatewayURL)
 	}
 	if cfg.EmbedModel != "text-embedding-3-large" {
@@ -94,7 +94,7 @@ func TestFromEnvOverrides(t *testing.T) {
 	if cfg.EmbedBatchSize != 64 {
 		t.Fatalf("EmbedBatchSize = %d", cfg.EmbedBatchSize)
 	}
-	if cfg.RerankGatewayURL != "http://rerank:8080" {
+	if cfg.RerankGatewayURL != "https://llm-gateway.centralcloud.com/v1" {
 		t.Fatalf("RerankGatewayURL = %q", cfg.RerankGatewayURL)
 	}
 	if cfg.RerankModel != "bge-reranker-large" {

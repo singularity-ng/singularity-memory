@@ -6,13 +6,10 @@ import (
 
 func TestParseProfile(t *testing.T) {
 	tests := []struct {
-		input    string
-		want     Profile
-		wantErr  bool
+		input   string
+		want    Profile
+		wantErr bool
 	}{
-		{"pg0", PG0, false},
-		{"PG0", PG0, false},
-		{"Pg0", PG0, false},
 		{"pgvector", PGVECTOR, false},
 		{"PGVECTOR", PGVECTOR, false},
 		{"PgVector", PGVECTOR, false},
@@ -41,7 +38,6 @@ func TestProfileSupportsVectors(t *testing.T) {
 		profile Profile
 		want    bool
 	}{
-		{PG0, false},
 		{PGVECTOR, true},
 		{VCHORD, true},
 	}
@@ -60,7 +56,6 @@ func TestProfileSupportsBM25(t *testing.T) {
 		profile Profile
 		want    bool
 	}{
-		{PG0, false},
 		{PGVECTOR, false},
 		{VCHORD, true},
 	}
@@ -79,9 +74,8 @@ func TestProfileDefaultDimensions(t *testing.T) {
 		profile Profile
 		want    int
 	}{
-		{PG0, 0},
-		{PGVECTOR, 768},
-		{VCHORD, 768},
+		{PGVECTOR, 2000},
+		{VCHORD, 2560},
 	}
 
 	for _, tt := range tests {
@@ -94,7 +88,7 @@ func TestProfileDefaultDimensions(t *testing.T) {
 }
 
 func TestAllProfiles(t *testing.T) {
-	if len(AllProfiles) != 3 {
-		t.Fatalf("len(AllProfiles) = %d, want 3", len(AllProfiles))
+	if len(AllProfiles) != 2 {
+		t.Fatalf("len(AllProfiles) = %d, want 2", len(AllProfiles))
 	}
 }

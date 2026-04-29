@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,14 +17,30 @@ import (
 )
 
 type fakeStore struct {
-	pingErr           error
-	banks             []store.BankListItem
-	bank              *store.BankProfile
-	bankErr           error
-	updateBankResult  *store.BankProfile
-	updateBankErr     error
-	deleteCount       int
-	deleteErr         error
+	pingErr          error
+	banks            []store.BankListItem
+	bank             *store.BankProfile
+	bankErr          error
+	updateBankResult *store.BankProfile
+	updateBankErr    error
+	deleteCount      int
+	deleteErr        error
+
+	// Memory store stubs
+	insertMemoryUnitID   string
+	insertMemoryUnitErr  error
+	getMemoryUnit        *store.MemoryUnit
+	getMemoryUnitErr     error
+	deleteMemoryUnitErr  error
+	listMemoryUnits      []store.MemoryUnit
+	listMemoryUnitsErr   error
+	insertMemoryLinkErr  error
+	getEntityObs         []store.EntityObservation
+	getEntityObsErr      error
+	insertChunkID        string
+	insertChunkErr       error
+	getChunks            []store.Chunk
+	getChunksErr         error
 }
 
 func (f fakeStore) Ping(context.Context) error {
@@ -52,6 +71,76 @@ func (f fakeStore) UpdateBank(_ context.Context, _ string, _ *string, _ *string,
 
 func (f fakeStore) DeleteBank(_ context.Context, _ string) (int, error) {
 	return f.deleteCount, f.deleteErr
+}
+
+func (f fakeStore) InsertMemoryUnit(_ context.Context, _ string, _ *store.MemoryUnit) (string, error) {
+	return f.insertMemoryUnitID, f.insertMemoryUnitErr
+}
+
+func (f fakeStore) GetMemoryUnit(_ context.Context, _ string, _ string) (*store.MemoryUnit, error) {
+	return f.getMemoryUnit, f.getMemoryUnitErr
+}
+
+func (f fakeStore) DeleteMemoryUnit(_ context.Context, _ string, _ string) error {
+	return f.deleteMemoryUnitErr
+}
+
+func (f fakeStore) ListMemoryUnits(_ context.Context, _ string, _ int, _ int) ([]store.MemoryUnit, error) {
+	return f.listMemoryUnits, f.listMemoryUnitsErr
+}
+
+func (f fakeStore) InsertMemoryLink(_ context.Context, _ *store.MemoryLink) error {
+	return f.insertMemoryLinkErr
+}
+
+func (f fakeStore) GetEntityObservations(_ context.Context, _ string, _ string, _ int) ([]store.EntityObservation, error) {
+	return f.getEntityObs, f.getEntityObsErr
+}
+
+func (f fakeStore) InsertChunk(_ context.Context, _ string, _ *store.Chunk) (string, error) {
+	return f.insertChunkID, f.insertChunkErr
+}
+
+func (f fakeStore) GetChunks(_ context.Context, _ string, _ string) ([]store.Chunk, error) {
+	return f.getChunks, f.getChunksErr
+}
+
+func (f fakeStore) InsertMemoryUnit(_ context.Context, _ string, unit *store.MemoryUnit) (string, error) {
+	if unit != nil && unit.ID != "" {
+		return unit.ID, nil
+	}
+	return "unit-test-id", nil
+}
+
+func (f fakeStore) GetMemoryUnit(_ context.Context, bankID string, unitID string) (*store.MemoryUnit, error) {
+	return &store.MemoryUnit{ID: unitID, BankID: bankID}, nil
+}
+
+func (f fakeStore) DeleteMemoryUnit(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
+func (f fakeStore) ListMemoryUnits(_ context.Context, bankID string, _ int, _ int) ([]store.MemoryUnit, error) {
+	return []store.MemoryUnit{{ID: "unit-test-id", BankID: bankID}}, nil
+}
+
+func (f fakeStore) InsertMemoryLink(_ context.Context, _ *store.MemoryLink) error {
+	return nil
+}
+
+func (f fakeStore) GetEntityObservations(_ context.Context, _ string, _ string, _ int) ([]store.EntityObservation, error) {
+	return []store.EntityObservation{}, nil
+}
+
+func (f fakeStore) InsertChunk(_ context.Context, _ string, chunk *store.Chunk) (string, error) {
+	if chunk != nil && chunk.ChunkID != "" {
+		return chunk.ChunkID, nil
+	}
+	return "chunk-test-id", nil
+}
+
+func (f fakeStore) GetChunks(_ context.Context, _ string, documentID string) ([]store.Chunk, error) {
+	return []store.Chunk{{ChunkID: "chunk-test-id", DocumentID: documentID}}, nil
 }
 
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {
@@ -103,8 +192,8 @@ func TestHealthzWithClientsConfigured(t *testing.T) {
 		Config: config.Config{
 			DatabaseSchema:   "public",
 			StorageProfile:   storageprofile.VCHORD,
-			EmbedGatewayURL:  "http://embed:8080",
-			RerankGatewayURL: "http://rerank:8080",
+			EmbedGatewayURL:  "https://llm-gateway.centralcloud.com/v1",
+			RerankGatewayURL: "https://llm-gateway.centralcloud.com/v1",
 			FeatureFlags:     map[string]bool{"banks": true},
 		},
 	})
@@ -162,6 +251,7 @@ func TestListBanksReturnsCompatibilityEnvelope(t *testing.T) {
 	if len(body.Banks) != 1 || body.Banks[0].BankID != "user123" {
 		t.Fatalf("unexpected banks response: %+v", body)
 	}
+	assertJSONFixture(t, rec.Body.Bytes(), "bank_list_success.json")
 }
 
 func TestListBanksUnscopedAlias(t *testing.T) {
@@ -231,6 +321,7 @@ func TestGetBankProfile(t *testing.T) {
 			t.Fatalf("expected disposition %s = 3, got %v", key, v)
 		}
 	}
+	assertJSONFixture(t, rec.Body.Bytes(), "bank_profile_success.json")
 }
 
 func TestGetBankProfileAutoCreates(t *testing.T) {
@@ -304,6 +395,7 @@ func TestUpdateBankPut(t *testing.T) {
 	if body["mission"] != "new mission" {
 		t.Fatalf("expected mission new mission, got %v", body["mission"])
 	}
+	assertJSONFixture(t, rec.Body.Bytes(), "bank_update_success.json")
 }
 
 func TestUpdateBankPatchDisposition(t *testing.T) {
@@ -342,6 +434,48 @@ func TestUpdateBankPatchDisposition(t *testing.T) {
 	v, ok := disp["skepticism"].(float64)
 	if !ok || int(v) != 5 {
 		t.Fatalf("expected skepticism = 5, got %v", disp["skepticism"])
+	}
+}
+
+func TestUpdateBankProfileDisposition(t *testing.T) {
+	bg := ""
+	handler := NewServer(Dependencies{
+		Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}},
+		Store: fakeStore{
+			updateBankResult: &store.BankProfile{
+				BankID:      "user123",
+				Name:        "",
+				Disposition: map[string]int{"skepticism": 4, "literalism": 2, "empathy": 5},
+				Mission:     "",
+				Background:  &bg,
+			},
+		},
+	})
+
+	payload := `{"disposition_skepticism": 4, "disposition_literalism": 2, "disposition_empathy": 5}`
+	req := httptest.NewRequest(http.MethodPut, "/v1/default/banks/user123/profile", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	disp, ok := body["disposition"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected disposition object, got %T", body["disposition"])
+	}
+	expected := map[string]int{"skepticism": 4, "literalism": 2, "empathy": 5}
+	for key, want := range expected {
+		v, ok := disp[key].(float64)
+		if !ok || int(v) != want {
+			t.Fatalf("expected %s = %d, got %v", key, want, disp[key])
+		}
 	}
 }
 
@@ -400,6 +534,7 @@ func TestDeleteBank(t *testing.T) {
 	if !ok || int(count) != 3 {
 		t.Fatalf("expected deleted_count 3, got %v", body["deleted_count"])
 	}
+	assertJSONFixture(t, rec.Body.Bytes(), "bank_delete_success.json")
 }
 
 func TestDeleteBankNotFound(t *testing.T) {
@@ -441,6 +576,7 @@ func TestBankHandlersWithoutStore(t *testing.T) {
 		body   string
 	}{
 		{http.MethodGet, "/v1/default/banks/user123/profile", ""},
+		{http.MethodPut, "/v1/default/banks/user123/profile", `{"disposition_skepticism":4}`},
 		{http.MethodPut, "/v1/default/banks/user123", `{"name":"x"}`},
 		{http.MethodPatch, "/v1/default/banks/user123", `{"name":"x"}`},
 		{http.MethodDelete, "/v1/default/banks/user123", ""},
@@ -544,5 +680,34 @@ func TestFeatureFlagEnabledAllowsAccess(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 when banks flag enabled, got %d", rec.Code)
+	}
+}
+
+func assertJSONFixture(t *testing.T, gotBytes []byte, fixtureName string) {
+	t.Helper()
+
+	wantBytes, err := os.ReadFile(filepath.Join("testdata", "fixtures", fixtureName))
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", fixtureName, err)
+	}
+
+	var got, want any
+	if err := json.Unmarshal(gotBytes, &got); err != nil {
+		t.Fatalf("response is invalid JSON: %v", err)
+	}
+	if err := json.Unmarshal(wantBytes, &want); err != nil {
+		t.Fatalf("fixture %s is invalid JSON: %v", fixtureName, err)
+	}
+
+	gotCanonical, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("canonicalize response: %v", err)
+	}
+	wantCanonical, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("canonicalize fixture %s: %v", fixtureName, err)
+	}
+	if !bytes.Equal(gotCanonical, wantCanonical) {
+		t.Fatalf("fixture %s mismatch\nwant: %s\n got: %s", fixtureName, wantCanonical, gotCanonical)
 	}
 }

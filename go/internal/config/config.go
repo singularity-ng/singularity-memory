@@ -11,15 +11,22 @@ import (
 )
 
 const (
-	defaultHost              = "127.0.0.1"
-	defaultPort              = "8888"
-	defaultDatabaseSchema    = "public"
-	defaultEmbedModel        = "text-embedding-3-small"
-	defaultEmbedDimensions   = 768
+	defaultHost           = "127.0.0.1"
+	defaultPort           = "8888"
+	defaultDatabaseSchema = "public"
+	defaultEmbedModel     = "qwen/qwen3-embedding-4b"
+	// 0 means omit the OpenAI-compatible dimensions field and use the
+	// embedding model's native output size. For Qwen3-Embedding-4B this is
+	// 2560 dimensions, which is the first vchord profile to benchmark.
+	defaultEmbedDimensions   = 0
 	defaultEmbedBatchSize    = 32
 	defaultRerankModel       = "cohere-rerank-v3"
 	defaultRerankTopK        = 10
-	defaultStorageProfile    = "pgvector"
+	defaultStorageProfile    = "vchord"
+	defaultModelCatalogPath  = ".singularity-memory/model-catalog.json"
+	defaultRetainBatchTokens = 8000
+	defaultRRFK              = 60
+	defaultRRFWeights        = "1.0,1.0,0.5,0.3"
 )
 
 type Config struct {
@@ -43,8 +50,18 @@ type Config struct {
 	// Storage profile
 	StorageProfile storageprofile.Profile
 
+	// Model catalog cache used by the HTTP API, SF export, and Charm TUI.
+	ModelCatalogPath string
+
 	// Feature flags parsed from SINGULARITY_FEATURE_* env vars
 	FeatureFlags map[string]bool
+
+	// Memory / retain configuration
+	RetainBatchTokens int
+
+	// RRF fusion configuration
+	RRFK       int
+	RRFWeights []float64
 }
 
 func FromEnv() Config {
@@ -57,17 +74,22 @@ func FromEnv() Config {
 		DatabaseSchema: getenv("SINGULARITY_DATABASE_SCHEMA", defaultDatabaseSchema),
 		MCPEnabled:     getenvBool("SINGULARITY_MCP_ENABLED", true),
 
-		EmbedGatewayURL: os.Getenv("SINGULARITY_EMBED_GATEWAY_URL"),
-		EmbedModel:      getenv("SINGULARITY_EMBED_MODEL", defaultEmbedModel),
-		EmbedDimensions: getenvInt("SINGULARITY_EMBED_DIMENSIONS", defaultEmbedDimensions),
+		EmbedGatewayURL: getenv("SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL", ""),
+		EmbedModel:      getenv("SINGULARITY_EMBEDDINGS_OPENAI_MODEL", defaultEmbedModel),
+		EmbedDimensions: getenvInt("SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS", defaultEmbedDimensions),
 		EmbedBatchSize:  getenvInt("SINGULARITY_EMBED_BATCH_SIZE", defaultEmbedBatchSize),
 
-		RerankGatewayURL: os.Getenv("SINGULARITY_RERANK_GATEWAY_URL"),
+		RerankGatewayURL: getenv("SINGULARITY_RERANK_OPENAI_BASE_URL", ""),
 		RerankModel:      getenv("SINGULARITY_RERANK_MODEL", defaultRerankModel),
 		RerankTopK:       getenvInt("SINGULARITY_RERANK_TOP_K", defaultRerankTopK),
 
-		StorageProfile: profile,
-		FeatureFlags:   parseFeatureFlags(),
+		StorageProfile:   profile,
+		ModelCatalogPath: getenv("SINGULARITY_MODEL_CATALOG_PATH", defaultModelCatalogPath),
+		FeatureFlags:     parseFeatureFlags(),
+
+		RetainBatchTokens: getenvInt("SINGULARITY_RETAIN_BATCH_TOKENS", defaultRetainBatchTokens),
+		RRFK:              getenvInt("SINGULARITY_RRF_K", defaultRRFK),
+		RRFWeights:        parseRRFWeights(getenv("SINGULARITY_RRF_WEIGHTS", defaultRRFWeights)),
 	}
 }
 
@@ -144,4 +166,26 @@ func parseFeatureFlags() map[string]bool {
 		flags[name] = val
 	}
 	return flags
+}
+
+// parseRRFWeights parses a comma-separated list of floats.
+// Defaults to [1.0, 1.0, 0.5, 0.3] if parsing fails.
+func parseRRFWeights(raw string) []float64 {
+	parts := strings.Split(raw, ",")
+	weights := make([]float64, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		v, err := strconv.ParseFloat(p, 64)
+		if err != nil {
+			return []float64{1.0, 1.0, 0.5, 0.3}
+		}
+		weights = append(weights, v)
+	}
+	if len(weights) == 0 {
+		return []float64{1.0, 1.0, 0.5, 0.3}
+	}
+	return weights
 }

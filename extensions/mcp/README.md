@@ -8,9 +8,9 @@ collects ready-to-paste snippets for the common ones.
 Start the server first:
 
 ```bash
-docker compose up singularity-postgres singularity-memory
+docker compose up singularity-memory-postgres singularity-memory
 # or:
-singularity-memory serve --host 0.0.0.0 --port 8888
+cd go && go run ./cmd/singularity-memory-go --host 0.0.0.0
 ```
 
 Verify MCP is listening:

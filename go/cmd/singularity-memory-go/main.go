@@ -15,6 +15,7 @@ import (
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
 	"github.com/singularity-ng/singularity-memory/go/internal/embed"
 	"github.com/singularity-ng/singularity-memory/go/internal/httpapi"
+	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
 )
@@ -69,7 +70,7 @@ func run() error {
 		embedClient = embed.NewClient(cfg, log.Default())
 		log.Info("embedding client configured", "url", cfg.EmbedGatewayURL, "model", cfg.EmbedModel)
 	} else {
-		log.Warn("SINGULARITY_EMBED_GATEWAY_URL is not set; embedding endpoints will be unavailable")
+		log.Warn("SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL is not set; embedding endpoints will be unavailable")
 	}
 
 	var rerankClient *rerank.Client
@@ -77,8 +78,11 @@ func run() error {
 		rerankClient = rerank.NewClient(cfg, log.Default())
 		log.Info("rerank client configured", "url", cfg.RerankGatewayURL, "model", cfg.RerankModel)
 	} else {
-		log.Warn("SINGULARITY_RERANK_GATEWAY_URL is not set; rerank endpoints will be unavailable")
+		log.Warn("SINGULARITY_RERANK_OPENAI_BASE_URL is not set; rerank endpoints will be unavailable")
 	}
+
+	modelCatalog := modelcatalog.NewService(cfg.ModelCatalogPath, modelcatalog.Fetcher{})
+	log.Info("model catalog configured", "path", cfg.ModelCatalogPath)
 
 	handler := httpapi.NewServer(httpapi.Dependencies{
 		Config:       cfg,
@@ -86,6 +90,7 @@ func run() error {
 		Logger:       log.Default(),
 		EmbedClient:  embedClient,
 		RerankClient: rerankClient,
+		ModelCatalog: modelCatalog,
 		Version:      version,
 	})
 

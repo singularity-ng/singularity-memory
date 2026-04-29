@@ -9,38 +9,42 @@ move with the user, not the tool.
 ```
 src/
   singularity_memory/             # CLI shim (singularity-memory serve|mcp|status)
-  singularity_memory_server/      # the engine — HTTP + MCP server, retrieval pipeline
+  singularity_memory_server/      # previous engine/reference — HTTP + MCP server, retrieval pipeline
   singularity_memory_client/      # Python HTTP client (used by extensions)
   singularity_memory_client_api/  # OpenAPI-generated Python client
+go/
+  cmd/singularity-memory-go/       # target Go server runtime
 extensions/
   hermes/                          # Python plugin — Hermes adapter (HTTP client)
   openclaw/                        # TypeScript plugin — OpenClaw adapter (HTTP client)
   mcp/                             # Wire-up recipes for Claude Code, Cursor, Windsurf, OpenCode
 ```
 
-The server in `src/` is the product. The directories under `extensions/`
-are thin adapters — none of them duplicate retrieval logic; they all
-forward to the running server.
+The target server runtime lives in `go/`. The directories under `extensions/`
+are thin adapters — none of them duplicate retrieval logic; they all forward
+to the running server.
 
 ## Quick start
 
 ```bash
-# Bring up the server (Postgres + Singularity Memory):
-docker compose up singularity-postgres singularity-memory
+# Bring up the server (Postgres 18 + VectorChord suite + Singularity Memory):
+docker compose up singularity-memory-postgres singularity-memory
 
-# Or, against your own Postgres with vchord installed:
+# Or, run the Go server against your own Postgres with vchord installed:
+cd go
 SINGULARITY_DATABASE_URL=postgresql://user:pw@host:5432/db \
-SINGULARITY_LLM_API_KEY=sk-... \
-  pip install -e . && singularity-memory serve --host 0.0.0.0
+SINGULARITY_STORAGE_PROFILE=vchord \
+SINGULARITY_FEATURE_BANKS=true \
+SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL=https://llm-gateway.centralcloud.com/v1 \
+SINGULARITY_RERANK_OPENAI_BASE_URL=https://llm-gateway.centralcloud.com/v1 \
+  go run ./cmd/singularity-memory-go --host 0.0.0.0
 ```
 
-Verify both APIs are up:
+Verify the current Go slice is up:
 
 ```bash
+curl -s http://localhost:8888/healthz | jq .
 curl -s http://localhost:8888/v1/banks | jq .
-curl -s -X POST http://localhost:8888/mcp/ \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ## Wire it up
@@ -54,7 +58,15 @@ curl -s -X POST http://localhost:8888/mcp/ \
 
 ## What lives where
 
-### `src/singularity_memory_server/` — the engine
+### `go/` — target runtime
+
+Go server runtime for the migration. It owns the new HTTP/MCP/worker/retrieval
+path and targets Postgres 18 + VectorChord.
+
+Current slice: health/version plus bank endpoints behind
+`SINGULARITY_FEATURE_BANKS=true`.
+
+### `src/singularity_memory_server/` — previous engine/reference
 
 Originally derived from [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight)
 (MIT) and assimilated into this codebase under our namespace; see `NOTICE`.
@@ -70,8 +82,8 @@ that landed in the hand-written engine and want a real Postgres+vchord
 test environment to land in B safely.
 
 The staged Python-to-Go migration plan lives in [`MIGRATION.md`](./MIGRATION.md).
-The current rule is contract-first: preserve the Python HTTP/MCP wire contract
-while porting the server to Go beside it.
+The current rule is contract-first: preserve the committed HTTP/MCP wire
+contract while moving the server runtime to Go.
 
 ### `extensions/hermes/` — Python plugin
 
@@ -80,12 +92,9 @@ server over HTTP. ~330 lines, no in-process retrieval. Implements
 `initialize` / `prefetch` / `sync_turn` / `handle_tool_call` / setup
 wizard config schema.
 
-Two operating modes:
-- **External server** (recommended): set `server_url` in
-  `$HERMES_HOME/singularity-memory.json`. Multiple Hermes sessions share
-  one server.
-- **Embedded**: set `server_embedded: true`. Plugin starts the server
-  inside the Hermes process. Useful for laptops / single-user setups.
+Set `server_url` in `$HERMES_HOME/singularity-memory.json`. Multiple Hermes
+sessions share one Singularity Memory server backed by the Postgres 18
+VectorChord container.
 
 ### `extensions/openclaw/` — TypeScript plugin
 
@@ -103,27 +112,26 @@ config line.
 
 ## Retrieval stack
 
-- **Vector**: `pgvector` by default (works everywhere). Optional upgrade
-  to `vchord` (Rust-built, better at scale + multilingual). Configure via
-  `SINGULARITY_VECTOR_EXTENSION`.
-- **Lexical**: Postgres native FTS by default (works everywhere).
-  Optional upgrades: `pg_textsearch` (Tantivy-based BM25) or
-  `vchord_bm25` (real BM25 with Block-Max-WAND). Configure via
-  `SINGULARITY_TEXT_SEARCH_EXTENSION`.
+- **Production vector**: `vchord` / `vchordrq` on external Postgres.
+  Configure via `SINGULARITY_VECTOR_EXTENSION=vchord`.
+- **Production lexical**: `vchord_bm25` on external Postgres. Configure via
+  `SINGULARITY_TEXT_SEARCH_EXTENSION=vchord`.
 - **Fusion**: Reciprocal Rank Fusion across lanes.
 - **Reranking**: optional cross-encoder via OpenAI-compatible HTTP
   endpoint (e.g. Qwen3 reranker on a local LLM gateway).
-- **Graph**: Apache AGE (optional).
+- **Graph**: relational link expansion in the current server. Apache AGE is
+  not required for the first Go migration.
 
-For typical workloads (tens of thousands of memories per workspace,
-mostly English / code), pgvector + native FTS is genuinely fine.
-vchord-stack matters at scale (>1M items) or for multilingual content.
+The migration target is vchord-first because it supports the scale,
+high-dimensional embeddings, and real BM25 path we want. `pg0` embedded mode,
+Apache AGE, and TimescaleDB are outside the first Go migration unless a
+concrete runtime query path needs them.
 
 ## Configuration
 
-All server config flows through `SINGULARITY_*` environment variables;
-`singularity_memory_server/singularity_config.py` is the canonical list.
-Common ones:
+All server config flows through `SINGULARITY_*` environment variables. For the
+Go runtime, `go/internal/config/config.go` is the source of truth; the Python
+config is reference history during the migration. Common ones:
 
 | Var                                       | Purpose                              |
 |-------------------------------------------|--------------------------------------|
@@ -134,8 +142,13 @@ Common ones:
 | `SINGULARITY_LLM_API_KEY`                 | Forwarded to the LLM provider        |
 | `SINGULARITY_EMBEDDINGS_PROVIDER`         | `local` / `openai` / `cohere` etc.   |
 | `SINGULARITY_EMBEDDINGS_OPENAI_API_KEY`   | Embedding endpoint key               |
-| `SINGULARITY_VECTOR_EXTENSION`            | `pgvector` / `vchord`                |
-| `SINGULARITY_TEXT_SEARCH_EXTENSION`       | `native` / `pg_textsearch` / `vchord` |
+| `SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL`  | `https://llm-gateway.centralcloud.com/v1` |
+| `SINGULARITY_EMBEDDINGS_OPENAI_MODEL`     | Embedding model, e.g. `qwen/qwen3-embedding-4b` |
+| `SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS` | Optional output dimensions; unset uses model-native size |
+| `SINGULARITY_RERANK_OPENAI_BASE_URL`      | `https://llm-gateway.centralcloud.com/v1` |
+| `SINGULARITY_RERANK_MODEL`                | Rerank model, e.g. `qwen/qwen3-reranker-4b` |
+| `SINGULARITY_VECTOR_EXTENSION`            | `vchord`                             |
+| `SINGULARITY_TEXT_SEARCH_EXTENSION`       | `vchord`                             |
 
 ## License & attribution
 

@@ -32,10 +32,10 @@ set memory.singularity-memory.serverUrl http://localhost:8888`). Schema:
 
 ```bash
 # In the singularity-memory repo:
-docker compose up singularity-postgres singularity-memory
+docker compose up singularity-memory-postgres singularity-memory
 # Or:
-pip install -e .
-singularity-memory serve --host 0.0.0.0 --port 8888
+cd go
+go run ./cmd/singularity-memory-go --host 0.0.0.0
 ```
 
 ## What it does
