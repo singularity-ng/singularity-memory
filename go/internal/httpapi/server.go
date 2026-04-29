@@ -11,7 +11,6 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
-	"github.com/singularity-ng/singularity-memory/go/internal/embed"
 	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
@@ -44,11 +43,16 @@ type Store interface {
 	UpsertDocument(ctx context.Context, bankID string, documentID string, text string) error
 }
 
+// Embedder is the interface satisfied by embed.Client.
+type Embedder interface {
+	Embed(ctx context.Context, inputs []string) ([][]float32, error)
+}
+
 type Dependencies struct {
 	Config       config.Config
 	Store        Store
 	Logger       *log.Logger
-	EmbedClient  *embed.Client
+	EmbedClient  Embedder
 	RerankClient *rerank.Client
 	ModelCatalog *modelcatalog.Service
 	Version      string
@@ -79,10 +83,10 @@ func NewServer(deps Dependencies) http.Handler {
 		r.Delete("/default/banks/{bank_id}", server.deleteBank)
 
 		// Memory endpoints gated by "memories" feature flag
-		r.Route("/default/banks/{bank_id}/memories", func(r chi.Router) {
-			r.Use(featureFlagMiddleware(deps.Config.FeatureFlags, "memories"))
-			r.Post("/", server.retain)
-		})
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/memories", server.retain)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/memories/", server.retain)
 	})
 
 	r.Route("/v1/model-catalog", func(r chi.Router) {
@@ -97,8 +101,6 @@ func NewServer(deps Dependencies) http.Handler {
 type server struct {
 	deps Dependencies
 }
-
-
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
