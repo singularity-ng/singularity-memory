@@ -7,6 +7,9 @@ codebase (commit `0ee7b2f`). Items grouped by priority.
 retired in-tree engine. **This file is forward-looking** — gaps that are real
 but didn't exist in the upstream Hindsight codebase either.
 
+The Python-to-Go service migration is tracked in `MIGRATION.md`; use that plan
+for staged Go port work and keep the Python contract frozen during migration.
+
 ---
 
 ## P0 — required before downstream tools depend on this in production

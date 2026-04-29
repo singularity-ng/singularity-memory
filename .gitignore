@@ -6,3 +6,25 @@ dist/
 .pytest_cache/
 .venv/
 .env
+go/singularity-memory-go
+
+# ── SF baseline (auto-generated) ──
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+.env.*
+!.env.example
+node_modules/
+.next/
+venv/
+target/
+vendor/
+*.log
+coverage/
+.cache/
+tmp/

@@ -69,6 +69,10 @@ auto-backfill, lane weighting, two-tier reranking, helpfulness feedback)
 that landed in the hand-written engine and want a real Postgres+vchord
 test environment to land in B safely.
 
+The staged Python-to-Go migration plan lives in [`MIGRATION.md`](./MIGRATION.md).
+The current rule is contract-first: preserve the Python HTTP/MCP wire contract
+while porting the server to Go beside it.
+
 ### `extensions/hermes/` — Python plugin
 
 Thin Hermes `MemoryProvider` that forwards every call to the running
