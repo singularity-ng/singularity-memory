@@ -19,7 +19,7 @@ _resource_mod = importlib.import_module("resource") if importlib.util.find_spec(
 import threading
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from opentelemetry import metrics
 from opentelemetry.exporter.prometheus import PrometheusMetricReader

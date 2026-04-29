@@ -90,7 +90,7 @@ def set_default_graph_retriever(retriever: GraphRetriever) -> None:
 
 async def retrieve_semantic_bm25_combined(
     conn,
-    query_emb_str: str,
+    query_emb_str: str | None,
     query_text: str,
     bank_id: str,
     fact_types: list[str],
@@ -145,18 +145,17 @@ async def retrieve_semantic_bm25_combined(
     )
     table = fq_table("memory_units")
 
+    semantic_enabled = query_emb_str is not None
+    bank_param_idx = 2 if semantic_enabled else 1
+    bm25_limit_idx = 3 if semantic_enabled else 2
+    bm25_text_idx = 4 if semantic_enabled else 3
+
     # --- Parameter layout ---
-    # $1 = query_emb_str  (semantic arms)
-    # $2 = bank_id
-    # When tokens present:
-    #   $3 = limit          (BM25 LIMIT; semantic uses inlined hnsw_fetch literal)
-    #   $4 = bm25_text
-    #   $5 = tags           (if present)
-    #   $6+ = tag_groups params (one per leaf)
-    # When no tokens ($3 is skipped — not included in params to avoid type inference gap):
-    #   $3 = tags           (if present)
-    #   $4+ = tag_groups params (one per leaf)
-    tags_param_idx = 5 if tokens else 3
+    # Dense mode:
+    #   $1 = query_emb_str, $2 = bank_id, $3/$4 = BM25 limit/text if tokens.
+    # Lexical-only mode:
+    #   $1 = bank_id, $2/$3 = BM25 limit/text if tokens.
+    tags_param_idx = (5 if tokens else 3) if semantic_enabled else (4 if tokens else 2)
     tags_clause = build_tags_where_clause_simple(tags, tags_param_idx, match=tags_match)
 
     # tag_groups params start immediately after the tags param slot
@@ -167,22 +166,23 @@ async def retrieve_semantic_bm25_combined(
     # Each arm has its own ORDER BY embedding <=> $1 LIMIT {hnsw_fetch}, which
     # lets the planner use the partial HNSW index for that fact_type.
     sem_arms = []
-    for ft in fact_types:
-        sem_arms.append(
-            f"(SELECT {cols},"
-            f"        1 - (embedding <=> $1::vector) AS similarity,"
-            f"        NULL::float AS bm25_score,"
-            f"        'semantic' AS source"
-            f" FROM {table}"
-            f" WHERE bank_id = $2"
-            f"   AND fact_type = '{ft}'"
-            f"   AND embedding IS NOT NULL"
-            f"   AND (1 - (embedding <=> $1::vector)) >= 0.3"
-            f"   {tags_clause}"
-            f"   {groups_clause}"
-            f" ORDER BY embedding <=> $1::vector"
-            f" LIMIT {hnsw_fetch})"
-        )
+    if semantic_enabled:
+        for ft in fact_types:
+            sem_arms.append(
+                f"(SELECT {cols},"
+                f"        1 - (embedding <=> $1::vector) AS similarity,"
+                f"        NULL::float AS bm25_score,"
+                f"        'semantic' AS source"
+                f" FROM {table}"
+                f" WHERE bank_id = ${bank_param_idx}"
+                f"   AND fact_type = '{ft}'"
+                f"   AND embedding IS NOT NULL"
+                f"   AND (1 - (embedding <=> $1::vector)) >= 0.3"
+                f"   {tags_clause}"
+                f"   {groups_clause}"
+                f" ORDER BY embedding <=> $1::vector"
+                f" LIMIT {hnsw_fetch})"
+            )
 
     arms = sem_arms
 
@@ -191,21 +191,21 @@ async def retrieve_semantic_bm25_combined(
         config = get_config()
         if config.text_search_extension == "vchord":
             bm25_score_expr = (
-                "search_vector <&> to_bm25query('idx_memory_units_text_search', tokenize($4, 'llmlingua2'))"
+                f"search_vector <&> to_bm25query('idx_memory_units_text_search', tokenize(${bm25_text_idx}, 'llmlingua2'))"
             )
             bm25_order_by = f"{bm25_score_expr} DESC"
             bm25_where_filter = ""
             bm25_text_param: str = query_text
         elif config.text_search_extension == "pg_textsearch":
-            bm25_score_expr = "-(text <@> to_bm25query($4, 'idx_memory_units_text_search'))"
-            bm25_order_by = "text <@> to_bm25query($4, 'idx_memory_units_text_search') ASC"
+            bm25_score_expr = f"-(text <@> to_bm25query(${bm25_text_idx}, 'idx_memory_units_text_search'))"
+            bm25_order_by = f"text <@> to_bm25query(${bm25_text_idx}, 'idx_memory_units_text_search') ASC"
             bm25_where_filter = ""
             bm25_text_param = query_text
         else:  # native
             query_tsquery = " | ".join(tokens)
-            bm25_score_expr = "ts_rank_cd(search_vector, to_tsquery('english', $4))"
+            bm25_score_expr = f"ts_rank_cd(search_vector, to_tsquery('english', ${bm25_text_idx}))"
             bm25_order_by = f"{bm25_score_expr} DESC"
-            bm25_where_filter = "AND search_vector @@ to_tsquery('english', $4)"
+            bm25_where_filter = f"AND search_vector @@ to_tsquery('english', ${bm25_text_idx})"
             bm25_text_param = query_tsquery
 
         for ft in fact_types:
@@ -215,18 +215,21 @@ async def retrieve_semantic_bm25_combined(
                 f"        {bm25_score_expr} AS bm25_score,"
                 f"        'bm25' AS source"
                 f" FROM {table}"
-                f" WHERE bank_id = $2"
+                f" WHERE bank_id = ${bank_param_idx}"
                 f"   AND fact_type = '{ft}'"
                 f"   {bm25_where_filter}"
                 f"   {tags_clause}"
                 f"   {groups_clause}"
                 f" ORDER BY {bm25_order_by}"
-                f" LIMIT $3)"
+                f" LIMIT ${bm25_limit_idx})"
             )
+
+    if not arms:
+        return result_dict
 
     query = "\nUNION ALL\n".join(arms)
 
-    params: list = [query_emb_str, bank_id]
+    params: list = [query_emb_str, bank_id] if semantic_enabled else [bank_id]
     if tokens:
         params.append(limit)  # $3: BM25 LIMIT (only referenced when tokens are present)
         params.append(bm25_text_param)  # $4
@@ -526,7 +529,7 @@ async def retrieve_temporal_combined(
 async def retrieve_all_fact_types_parallel(
     pool,
     query_text: str,
-    query_embedding_str: str,
+    query_embedding_str: str | None,
     bank_id: str,
     fact_types: list[str],
     thinking_budget: int,
@@ -597,8 +600,10 @@ async def retrieve_all_fact_types_parallel(
         )
         semantic_bm25_time = time.time() - semantic_bm25_start
 
-        # Temporal combined (if constraint detected) - same connection!
-        if temporal_constraint:
+        # Temporal combined (if constraint detected) - same connection. The
+        # current temporal spreader scores candidates with query vectors, so
+        # lexical-only mode skips it rather than sending an empty vector.
+        if temporal_constraint and query_embedding_str is not None:
             tc_start, tc_end = temporal_constraint
             temporal_start = time.time()
             temporal_results_by_ft = await retrieve_temporal_combined(
@@ -619,7 +624,8 @@ async def retrieve_all_fact_types_parallel(
     timings["semantic_bm25_combined"] = semantic_bm25_time
     timings["temporal_combined"] = temporal_time
 
-    # Step 3: Run graph retrieval for each fact type in parallel
+    # Step 3: Run graph retrieval for each fact type in parallel. Link expansion
+    # currently uses semantic seeds, so lexical-only recall leaves this lane off.
     async def run_graph_for_fact_type(
         ft: str,
     ) -> tuple[str, list[RetrievalResult], float, GraphRetrievalTimings | None]:
@@ -639,9 +645,11 @@ async def retrieve_all_fact_types_parallel(
         )
         return ft, results, time.time() - graph_start, graph_timing
 
-    # Run graph for all fact types in parallel
-    graph_tasks = [run_graph_for_fact_type(ft) for ft in fact_types]
-    graph_results_list = await asyncio.gather(*graph_tasks)
+    if query_embedding_str is not None:
+        graph_tasks = [run_graph_for_fact_type(ft) for ft in fact_types]
+        graph_results_list = await asyncio.gather(*graph_tasks)
+    else:
+        graph_results_list = []
 
     # Organize results by fact type
     results_by_fact_type: dict[str, ParallelRetrievalResult] = {}
@@ -676,8 +684,8 @@ async def retrieve_all_fact_types_parallel(
             graph=graph_results,
             temporal=temporal_results,
             timings={
-                "semantic": semantic_bm25_time / 2,  # Approximate split
-                "bm25": semantic_bm25_time / 2,
+                "semantic": semantic_bm25_time / 2 if query_embedding_str is not None else 0.0,
+                "bm25": semantic_bm25_time / 2 if query_embedding_str is not None else semantic_bm25_time,
                 "graph": graph_time,
                 "temporal": temporal_time,  # Same for all fact types (single query)
                 "temporal_extraction": temporal_extraction_time,

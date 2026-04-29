@@ -141,7 +141,7 @@ class ProcessedFact:
     # Core fact data
     fact_text: str
     fact_type: str
-    embedding: list[float]
+    embedding: list[float] | None
 
     # Temporal data
     occurred_start: datetime | None
@@ -186,7 +186,7 @@ class ProcessedFact:
 
     @staticmethod
     def from_extracted_fact(
-        extracted_fact: "ExtractedFact", embedding: list[float], chunk_id: str | None = None
+        extracted_fact: "ExtractedFact", embedding: list[float] | None, chunk_id: str | None = None
     ) -> "ProcessedFact":
         """
         Create ProcessedFact from ExtractedFact.

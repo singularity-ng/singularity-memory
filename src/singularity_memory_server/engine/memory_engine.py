@@ -3382,20 +3382,26 @@ class MemoryEngine(MemoryEngineInterface):
         try:
             # Step 1: Generate query embedding (for semantic search)
             step_start = time.time()
+            query_embedding: list[float] | None = None
 
             embedding_span = tracer_otel.start_span("singularity_memory.recall_embedding")
             embedding_span.set_attribute("singularity_memory.bank_id", bank_id)
             embedding_span.set_attribute("singularity_memory.query", query[:100])
 
             try:
-                query_embeddings = await embedding_utils.generate_embeddings_batch(self.embeddings, [query])
-                query_embedding = query_embeddings[0]
-                step_duration = time.time() - step_start
-                log_buffer.append(f"  [1] Generate query embedding: {step_duration:.3f}s")
+                dense_retrieval_enabled = getattr(self.embeddings, "provider_name", None) != "none"
+                if dense_retrieval_enabled:
+                    query_embeddings = await embedding_utils.generate_embeddings_batch(self.embeddings, [query])
+                    query_embedding = query_embeddings[0]
+                    step_duration = time.time() - step_start
+                    log_buffer.append(f"  [1] Generate query embedding: {step_duration:.3f}s")
+                else:
+                    step_duration = time.time() - step_start
+                    log_buffer.append("  [1] Query embedding: skipped (dense embeddings unavailable)")
             finally:
                 embedding_span.end()
 
-            if tracer:
+            if tracer and query_embedding is not None:
                 tracer.record_query_embedding(query_embedding)
                 tracer.add_phase_metric("generate_query_embedding", step_duration)
 
@@ -3404,7 +3410,7 @@ class MemoryEngine(MemoryEngineInterface):
             # - Graph runs per fact type (complex traversal)
             # - Temporal runs per fact type (if constraint detected)
             step_start = time.time()
-            query_embedding_str = str(query_embedding)
+            query_embedding_str = str(query_embedding) if query_embedding is not None else None
 
             from .search.retrieval import (
                 get_default_graph_retriever,

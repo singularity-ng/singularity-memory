@@ -160,10 +160,18 @@ async def _pre_resolve_phase1(
         # Skipped in streaming mode — deferred to Phase 3 to avoid O(bank_size)
         # scaling bottleneck that makes later streaming batches progressively slower.
         semantic_ann_links = []
-        if not skip_semantic_ann:
+        if not skip_semantic_ann and any(embedding is None for embedding in embeddings):
+            log_buffer.append("  Semantic ANN: skipped (dense embeddings unavailable)")
+        elif not skip_semantic_ann:
             fact_types = [fact.fact_type for fact in processed_facts]
+            dense_embeddings = [embedding for embedding in embeddings if embedding is not None]
             semantic_ann_links = await compute_semantic_links_ann(
-                resolve_conn, bank_id, placeholder_unit_ids, embeddings, fact_types=fact_types, log_buffer=log_buffer
+                resolve_conn,
+                bank_id,
+                placeholder_unit_ids,
+                dense_embeddings,
+                fact_types=fact_types,
+                log_buffer=log_buffer,
             )
 
     return Phase1Result(
@@ -280,9 +288,12 @@ async def _insert_facts_and_links(
         if skip_semantic_links:
             log_buffer.append("  Semantic links: skipped (deferred to final ANN pass)")
             semantic_link_count = 0
+        elif any(fact.embedding is None for fact in processed_facts):
+            log_buffer.append("  Semantic links: skipped (dense embeddings unavailable)")
+            semantic_link_count = 0
         else:
             step_start = time.time()
-            embeddings_for_links = [fact.embedding for fact in processed_facts]
+            embeddings_for_links = [fact.embedding for fact in processed_facts if fact.embedding is not None]
             semantic_link_count = await link_creation.create_semantic_links_batch(
                 conn,
                 bank_id,
