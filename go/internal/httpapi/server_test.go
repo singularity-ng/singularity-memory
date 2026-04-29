@@ -41,6 +41,7 @@ type fakeStore struct {
 	insertChunkErr      error
 	getChunks           []store.Chunk
 	getChunksErr        error
+	upsertDocumentErr   error
 }
 
 func (f fakeStore) Ping(context.Context) error {
@@ -103,6 +104,10 @@ func (f fakeStore) InsertChunk(_ context.Context, _ string, _ *store.Chunk) (str
 
 func (f fakeStore) GetChunks(_ context.Context, _ string, _ string) ([]store.Chunk, error) {
 	return f.getChunks, f.getChunksErr
+}
+
+func (f fakeStore) UpsertDocument(_ context.Context, _ string, _ string, _ string) error {
+	return f.upsertDocumentErr
 }
 
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {
@@ -670,9 +675,9 @@ func TestFeatureFlagMemoriesEnabledAllowsAccess(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	// Should pass the feature flag gate and hit the stub handler (501 Not Implemented)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("expected 501 when memories flag enabled (stub handler), got %d", rec.Code)
+	// Should pass the feature flag gate and reach the real retain handler.
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when memories flag enabled without a store, got %d", rec.Code)
 	}
 }
 

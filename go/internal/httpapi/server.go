@@ -39,6 +39,9 @@ type Store interface {
 	// Chunk storage
 	InsertChunk(ctx context.Context, bankID string, chunk *store.Chunk) (string, error)
 	GetChunks(ctx context.Context, bankID string, documentID string) ([]store.Chunk, error)
+
+	// Document upsert
+	UpsertDocument(ctx context.Context, bankID string, documentID string, text string) error
 }
 
 type Dependencies struct {

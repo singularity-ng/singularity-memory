@@ -330,6 +330,22 @@ func (s *Store) logQueryDuration(ctx context.Context, operation string, d time.D
 	// duration available through the context or a future metrics interface.
 }
 
+// UpsertDocument inserts or updates a document row.
+func (s *Store) UpsertDocument(ctx context.Context, bankID string, documentID string, text string) error {
+	query := `
+		INSERT INTO ` + s.table("documents") + ` (document_id, bank_id, content, created_at, updated_at)
+		VALUES ($1, $2, $3, NOW(), NOW())
+		ON CONFLICT (document_id) DO UPDATE SET
+			content = EXCLUDED.content,
+			updated_at = NOW()
+	`
+	_, err := s.pool.Exec(ctx, query, documentID, bankID, text)
+	if err != nil {
+		return fmt.Errorf("upsert document: %w", err)
+	}
+	return nil
+}
+
 func vectorParam(values []float32) any {
 	if len(values) == 0 {
 		return nil
