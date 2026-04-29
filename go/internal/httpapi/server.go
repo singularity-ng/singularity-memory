@@ -95,9 +95,7 @@ type server struct {
 	deps Dependencies
 }
 
-func (s *server) retain(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "retain endpoint is not yet implemented")
-}
+
 
 func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
