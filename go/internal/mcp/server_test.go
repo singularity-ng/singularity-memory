@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -102,8 +103,24 @@ func TestServerToolsList(t *testing.T) {
 	}
 }
 
+type mockToolBackend struct{}
+
+func (m *mockToolBackend) Retain(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	return map[string]any{"status": "accepted", "bank_id": bankID}, nil
+}
+func (m *mockToolBackend) Recall(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	return map[string]any{"results": []any{}, "bank_id": bankID}, nil
+}
+func (m *mockToolBackend) ListBanks(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	return map[string]any{"banks": []any{}}, nil
+}
+func (m *mockToolBackend) GetBank(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	return map[string]any{"bank_id": bankID}, nil
+}
+
 func TestServerToolsCallRetain(t *testing.T) {
 	srv := NewServer()
+	srv.ToolBackend = &mockToolBackend{}
 	payload := JSONRPCRequest{
 		JSONRPC: "2.0",
 		ID:      3,

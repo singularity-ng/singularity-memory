@@ -162,6 +162,7 @@ func NewServer(deps Dependencies) http.Handler {
 	// MCP JSON-RPC 2.0 endpoints
 	if deps.MCPServer != nil {
 		mcpServer := deps.MCPServer
+		mcpServer.ToolBackend = newMCPToolBackend(server)
 		// Multi-bank route: bank from X-Bank-Id header
 		r.Handle("/mcp", mcpHandler(mcpServer, ""))
 		r.Handle("/mcp/", mcpHandler(mcpServer, ""))

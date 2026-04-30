@@ -134,18 +134,6 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 	}
 }
 
-// ToolHandler is the interface for executing MCP tools.
-type ToolHandler interface {
-	HandleRetain(ctx *ToolContext, args map[string]any) (any, error)
-	HandleRecall(ctx *ToolContext, args map[string]any) (any, error)
-	HandleListBanks(ctx *ToolContext, args map[string]any) (any, error)
-	HandleGetBank(ctx *ToolContext, args map[string]any) (any, error)
-}
-
-// ToolContext carries per-request context for tool execution.
-type ToolContext struct {
-	BankID string
-}
 
 // handleToolsCall dispatches tool invocations.
 func (s *Server) handleToolsCall(r *http.Request, req *JSONRPCRequest, sess *Session) *JSONRPCResponse {
@@ -165,20 +153,33 @@ func (s *Server) handleToolsCall(r *http.Request, req *JSONRPCRequest, sess *Ses
 	if sess != nil {
 		bankID = sess.BankID
 	}
-	ctx := &ToolContext{BankID: bankID}
 
 	var result any
 	var err error
 
+	ctx := r.Context()
+
 	switch toolName {
 	case "memory_retain":
-		result, err = s.handleRetain(ctx, params)
+		if s.ToolBackend == nil {
+			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
+		}
+		result, err = s.ToolBackend.Retain(ctx, bankID, params)
 	case "memory_recall":
-		result, err = s.handleRecall(ctx, params)
+		if s.ToolBackend == nil {
+			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
+		}
+		result, err = s.ToolBackend.Recall(ctx, bankID, params)
 	case "memory_list_banks":
-		result, err = s.handleListBanks(ctx, params)
+		if s.ToolBackend == nil {
+			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
+		}
+		result, err = s.ToolBackend.ListBanks(ctx, bankID, params)
 	case "memory_get_bank":
-		result, err = s.handleGetBank(ctx, params)
+		if s.ToolBackend == nil {
+			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
+		}
+		result, err = s.ToolBackend.GetBank(ctx, bankID, params)
 	default:
 		return errorResponse(req.ID, ErrMethodNotFound, "tool not found: "+toolName)
 	}
@@ -196,50 +197,4 @@ func (s *Server) handleToolsCall(r *http.Request, req *JSONRPCRequest, sess *Ses
 			},
 		},
 	}
-}
-
-func (s *Server) handleRetain(ctx *ToolContext, args map[string]any) (any, error) {
-	content, _ := args["content"].(string)
-	if content == "" {
-		return nil, fmt.Errorf("content is required")
-	}
-	return map[string]any{
-		"status":  "accepted",
-		"message": "Memory storage initiated",
-		"bank_id": ctx.BankID,
-	}, nil
-}
-
-func (s *Server) handleRecall(ctx *ToolContext, args map[string]any) (any, error) {
-	query, _ := args["query"].(string)
-	if query == "" {
-		return nil, fmt.Errorf("query is required")
-	}
-	return map[string]any{
-		"results": []any{},
-		"query":   query,
-		"bank_id": ctx.BankID,
-	}, nil
-}
-
-func (s *Server) handleListBanks(ctx *ToolContext, args map[string]any) (any, error) {
-	return map[string]any{
-		"banks": []any{},
-	}, nil
-}
-
-func (s *Server) handleGetBank(ctx *ToolContext, args map[string]any) (any, error) {
-	bankID := ctx.BankID
-	if b, ok := args["bank_id"].(string); ok && b != "" {
-		bankID = b
-	}
-	if bankID == "" {
-		return nil, fmt.Errorf("no bank_id configured")
-	}
-	return map[string]any{
-		"bank_id":     bankID,
-		"name":        bankID,
-		"disposition": map[string]int{"skepticism": 3, "literalism": 3, "empathy": 3},
-		"mission":     "",
-	}, nil
 }

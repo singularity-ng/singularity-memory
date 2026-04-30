@@ -9,9 +9,10 @@ import (
 
 // Server implements the MCP JSON-RPC 2.0 HTTP transport.
 type Server struct {
-	Sessions  *SessionStore
-	AuthToken string
-	BankID    string // default bank from header
+	Sessions    *SessionStore
+	AuthToken   string
+	BankID      string // default bank from header
+	ToolBackend ToolBackend
 }
 
 // NewServer creates an MCP server with an in-memory session store.
