@@ -19,7 +19,10 @@
  *   recallLimit - Max memories per recall call (default: 5)
  */
 
-import { definePluginEntry, type OpenClawPluginApi } from "openclaw/plugin-sdk";
+import {
+  definePluginEntry,
+  type OpenClawPluginApi,
+} from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
 
 // ---------------------------------------------------------------------------
