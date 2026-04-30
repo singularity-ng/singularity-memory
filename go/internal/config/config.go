@@ -73,12 +73,14 @@ type Config struct {
 
 	// Embedding configuration
 	EmbedGatewayURL string
+	EmbedAPIKey     string
 	EmbedModel      string
 	EmbedDimensions int
 	EmbedBatchSize  int
 
 	// Reranking configuration
 	RerankGatewayURL string
+	RerankAPIKey     string
 	RerankModel      string
 	RerankTopK       int
 
@@ -145,11 +147,13 @@ func FromEnv() Config {
 		MCPEnabled:     getenvBool("SINGULARITY_MCP_ENABLED", true),
 
 		EmbedGatewayURL: getenv("SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL", ""),
+		EmbedAPIKey:     firstNonEmpty(os.Getenv("SINGULARITY_EMBEDDINGS_OPENAI_API_KEY"), os.Getenv("LLM_MUX_API_KEY")),
 		EmbedModel:      getenv("SINGULARITY_EMBEDDINGS_OPENAI_MODEL", defaultEmbedModel),
 		EmbedDimensions: getenvInt("SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS", defaultEmbedDimensions),
 		EmbedBatchSize:  getenvInt("SINGULARITY_EMBED_BATCH_SIZE", defaultEmbedBatchSize),
 
 		RerankGatewayURL: getenv("SINGULARITY_RERANK_OPENAI_BASE_URL", ""),
+		RerankAPIKey:     firstNonEmpty(os.Getenv("SINGULARITY_RERANK_OPENAI_API_KEY"), os.Getenv("SINGULARITY_EMBEDDINGS_OPENAI_API_KEY"), os.Getenv("LLM_MUX_API_KEY")),
 		RerankModel:      getenv("SINGULARITY_RERANK_MODEL", defaultRerankModel),
 		RerankTopK:       getenvInt("SINGULARITY_RERANK_TOP_K", defaultRerankTopK),
 
@@ -193,6 +197,15 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func getenvBool(key string, fallback bool) bool {

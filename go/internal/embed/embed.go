@@ -105,6 +105,9 @@ func (c *Client) embedBatch(ctx context.Context, inputs []string, baseIndex int)
 		return nil, fmt.Errorf("create embed request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.cfg.EmbedAPIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.EmbedAPIKey)
+	}
 
 	c.logger.Info("embed request",
 		"url", url,
