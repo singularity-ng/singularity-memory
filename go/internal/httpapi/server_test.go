@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
 	"github.com/singularity-ng/singularity-memory/go/internal/storageprofile"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
@@ -108,6 +110,14 @@ func (f fakeStore) GetChunks(_ context.Context, _ string, _ string) ([]store.Chu
 
 func (f fakeStore) UpsertDocument(_ context.Context, _ string, _ string, _ string) error {
 	return f.upsertDocumentErr
+}
+
+func (f fakeStore) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {
+	return nil, nil
+}
+
+func (f fakeStore) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+	return nil
 }
 
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {
