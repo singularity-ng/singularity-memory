@@ -1,0 +1,11 @@
+{
+  "bank_id": "user123",
+  "name": "Alice",
+  "disposition": {
+    "empathy": 3,
+    "literalism": 3,
+    "skepticism": 3
+  },
+  "mission": "test mission",
+  "background": "test mission"
+}

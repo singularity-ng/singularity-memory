@@ -1,0 +1,16 @@
+{
+  "banks": [
+    {
+      "bank_id": "user123",
+      "name": "Alice",
+      "disposition": {
+        "empathy": 3,
+        "literalism": 3,
+        "skepticism": 3
+      },
+      "mission": "Ship reliable software",
+      "created_at": null,
+      "updated_at": null
+    }
+  ]
+}
