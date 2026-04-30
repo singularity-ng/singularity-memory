@@ -87,6 +87,8 @@ func NewServer(deps Dependencies) http.Handler {
 			Post("/default/banks/{bank_id}/memories", server.retain)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Post("/default/banks/{bank_id}/memories/", server.retain)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/memories/recall", server.recall)
 	})
 
 	r.Route("/v1/model-catalog", func(r chi.Router) {
