@@ -1,0 +1,20 @@
+{
+  "name": "tie-break-raw-sum",
+  "description": "Two documents have identical RRF scores but different raw-score sums; tie-breaker resolves order. high-sum has raw total 15 vs low-sum 11.",
+  "query": "container orchestration",
+  "k": 60,
+  "lanes": {
+    "semantic": [
+      { "id": "high-sum", "score": 10.0 },
+      { "id": "low-sum", "score": 1.0 }
+    ],
+    "bm25": [
+      { "id": "low-sum", "score": 10.0 },
+      { "id": "high-sum", "score": 5.0 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "high-sum", "rank": 1 },
+    { "id": "low-sum", "rank": 2 }
+  ]
+}

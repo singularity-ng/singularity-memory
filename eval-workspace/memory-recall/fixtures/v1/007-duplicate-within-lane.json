@@ -1,0 +1,22 @@
+{
+  "name": "duplicate-within-lane",
+  "description": "Same document appears twice in one lane. Only the first (highest-score) occurrence should count.",
+  "query": "database indexing strategies",
+  "k": 60,
+  "lanes": {
+    "semantic": [
+      { "id": "dup", "score": 0.95 },
+      { "id": "other", "score": 0.85 },
+      { "id": "dup", "score": 0.75 }
+    ],
+    "bm25": [
+      { "id": "bm", "score": 1.00 },
+      { "id": "dup", "score": 0.90 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "dup", "rank": 1 },
+    { "id": "bm", "rank": 2 },
+    { "id": "other", "rank": 3 }
+  ]
+}

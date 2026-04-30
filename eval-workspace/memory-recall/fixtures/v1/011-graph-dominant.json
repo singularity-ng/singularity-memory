@@ -1,0 +1,37 @@
+{
+  "name": "graph-dominant",
+  "description": "Graph lane has high weight (2.0) and should dominate the fused ranking despite lower individual ranks.",
+  "query": "project dependency graph",
+  "k": 60,
+  "weights": {
+    "semantic": 1.0,
+    "bm25": 1.0,
+    "graph": 2.0,
+    "temporal": 0.3
+  },
+  "lanes": {
+    "semantic": [
+      { "id": "sem-winner", "score": 0.95 },
+      { "id": "graph-winner", "score": 0.50 }
+    ],
+    "bm25": [
+      { "id": "bm-winner", "score": 1.10 },
+      { "id": "graph-winner", "score": 0.60 }
+    ],
+    "graph": [
+      { "id": "graph-winner", "score": 0.80 },
+      { "id": "sem-winner", "score": 0.40 },
+      { "id": "bm-winner", "score": 0.30 }
+    ],
+    "temporal": [
+      { "id": "temp-winner", "score": 0.99 },
+      { "id": "graph-winner", "score": 0.55 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "graph-winner", "rank": 1 },
+    { "id": "sem-winner", "rank": 2 },
+    { "id": "bm-winner", "rank": 3 },
+    { "id": "temp-winner", "rank": 4 }
+  ]
+}

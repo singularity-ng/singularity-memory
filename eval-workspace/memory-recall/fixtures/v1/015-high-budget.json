@@ -1,0 +1,58 @@
+{
+  "name": "high-budget",
+  "description": "High budget scenario with 20 results across all four lanes, no overlap. Ranked by per-lane weighted RRF; tie-break by raw score within same-lane ties.",
+  "query": "comprehensive research topic",
+  "k": 60,
+  "lanes": {
+    "semantic": [
+      { "id": "mem-a1", "score": 0.95 },
+      { "id": "mem-a2", "score": 0.90 },
+      { "id": "mem-a3", "score": 0.85 },
+      { "id": "mem-a4", "score": 0.80 },
+      { "id": "mem-a5", "score": 0.75 }
+    ],
+    "bm25": [
+      { "id": "mem-b1", "score": 1.20 },
+      { "id": "mem-b2", "score": 1.10 },
+      { "id": "mem-b3", "score": 1.00 },
+      { "id": "mem-b4", "score": 0.90 },
+      { "id": "mem-b5", "score": 0.80 }
+    ],
+    "graph": [
+      { "id": "mem-g1", "score": 0.88 },
+      { "id": "mem-g2", "score": 0.82 },
+      { "id": "mem-g3", "score": 0.76 },
+      { "id": "mem-g4", "score": 0.70 },
+      { "id": "mem-g5", "score": 0.64 }
+    ],
+    "temporal": [
+      { "id": "mem-t1", "score": 0.99 },
+      { "id": "mem-t2", "score": 0.93 },
+      { "id": "mem-t3", "score": 0.87 },
+      { "id": "mem-t4", "score": 0.81 },
+      { "id": "mem-t5", "score": 0.75 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "mem-b1", "rank": 1 },
+    { "id": "mem-a1", "rank": 2 },
+    { "id": "mem-b2", "rank": 3 },
+    { "id": "mem-a2", "rank": 4 },
+    { "id": "mem-b3", "rank": 5 },
+    { "id": "mem-a3", "rank": 6 },
+    { "id": "mem-b4", "rank": 7 },
+    { "id": "mem-a4", "rank": 8 },
+    { "id": "mem-b5", "rank": 9 },
+    { "id": "mem-a5", "rank": 10 },
+    { "id": "mem-g1", "rank": 11 },
+    { "id": "mem-g2", "rank": 12 },
+    { "id": "mem-g3", "rank": 13 },
+    { "id": "mem-g4", "rank": 14 },
+    { "id": "mem-g5", "rank": 15 },
+    { "id": "mem-t1", "rank": 16 },
+    { "id": "mem-t2", "rank": 17 },
+    { "id": "mem-t3", "rank": 18 },
+    { "id": "mem-t4", "rank": 19 },
+    { "id": "mem-t5", "rank": 20 }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "name": "empty-semantic-bm25-only",
+  "description": "Semantic lane is empty; only BM25 contributes. Verifies graceful handling of missing lanes.",
+  "query": "exact phrase match test",
+  "k": 60,
+  "lanes": {
+    "semantic": [],
+    "bm25": [
+      { "id": "mem-b3", "score": 1.15 },
+      { "id": "mem-b4", "score": 0.88 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "mem-b3", "rank": 1 },
+    { "id": "mem-b4", "rank": 2 }
+  ]
+}
