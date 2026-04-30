@@ -15,6 +15,7 @@ import (
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
 	"github.com/singularity-ng/singularity-memory/go/internal/embed"
 	"github.com/singularity-ng/singularity-memory/go/internal/httpapi"
+	"github.com/singularity-ng/singularity-memory/go/internal/mcp"
 	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
@@ -96,6 +97,12 @@ func run() error {
 	modelCatalog := modelcatalog.NewService(cfg.ModelCatalogPath, modelcatalog.Fetcher{LiveProviders: liveProviders})
 	log.Info("model catalog configured", "path", cfg.ModelCatalogPath, "live_providers", len(liveProviders), "secret_source", cfg.ModelDiscoverySecretSource)
 
+	var mcpServer *mcp.Server
+	if cfg.MCPEnabled {
+		mcpServer = mcp.NewServer()
+		log.Info("mcp server enabled")
+	}
+
 	handler := httpapi.NewServer(httpapi.Dependencies{
 		Config:       cfg,
 		Store:        db,
@@ -104,6 +111,7 @@ func run() error {
 		RerankClient: rerankClient,
 		ModelCatalog: modelCatalog,
 		Version:      version,
+		MCPServer:    mcpServer,
 	})
 
 	srv := &http.Server{

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
+	"github.com/singularity-ng/singularity-memory/go/internal/mcp"
 	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
@@ -43,6 +44,23 @@ type Store interface {
 	// Document upsert
 	UpsertDocument(ctx context.Context, bankID string, documentID string, text string) error
 
+	// Agent-brain page storage
+	UpsertBrainPage(ctx context.Context, bankID string, input store.BrainPageInput) (*store.BrainPage, error)
+	GetBrainPage(ctx context.Context, bankID string, slug string) (*store.BrainPage, error)
+	ListBrainPages(ctx context.Context, bankID string, limit int) ([]store.BrainPage, error)
+	AddBrainLink(ctx context.Context, bankID string, sourceID string, link store.BrainLink) error
+	GetBrainLinks(ctx context.Context, bankID string, sourceID string, slug string, backlinks bool) ([]store.BrainLink, error)
+	AddBrainTimelineEntry(ctx context.Context, bankID string, sourceID string, entry store.BrainTimelineEntry) (*store.BrainTimelineEntry, error)
+	GetBrainTimeline(ctx context.Context, bankID string, sourceID string, slug string, limit int) ([]store.BrainTimelineEntry, error)
+	EnqueueBrainJob(ctx context.Context, bankID string, input store.BrainJobInput) (*store.BrainJob, error)
+	ListBrainJobs(ctx context.Context, bankID string, status string, limit int) ([]store.BrainJob, error)
+	ClaimBrainJob(ctx context.Context, bankID string, kinds []string) (*store.BrainJob, error)
+	CompleteBrainJob(ctx context.Context, bankID string, jobID string, status string, result map[string]any, jobErr *string) (*store.BrainJob, error)
+	UpsertCoreMemoryBlock(ctx context.Context, block store.CoreMemoryBlock) (*store.CoreMemoryBlock, error)
+	ListCoreMemoryBlocks(ctx context.Context, bankID string) ([]store.CoreMemoryBlock, error)
+	RunDeterministicConsolidation(ctx context.Context, bankID string, limit int) (*store.ConsolidationResult, error)
+	ReflectAgentMemory(ctx context.Context, bankID string, limit int) (*store.Reflection, error)
+
 	// Querier access for retrieval lanes
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -62,6 +80,7 @@ type Dependencies struct {
 	ModelCatalog *modelcatalog.Service
 	Version      string
 	OpenAPIJSON  []byte
+	MCPServer    *mcp.Server
 }
 
 func NewServer(deps Dependencies) http.Handler {
@@ -94,6 +113,44 @@ func NewServer(deps Dependencies) http.Handler {
 			Post("/default/banks/{bank_id}/memories/", server.retain)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Post("/default/banks/{bank_id}/memories/recall", server.recall)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/pages", server.listBrainPages)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/pages", server.upsertBrainPage)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/links", server.addBrainLink)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/links", server.getBrainLinks)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}/links", server.getBrainLinks)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}/backlinks", server.getBrainBacklinks)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/timeline", server.addBrainTimeline)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/timeline", server.getBrainTimeline)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/pages/{slug:.+}/timeline", server.addBrainTimeline)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}/timeline", server.getBrainTimeline)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/jobs", server.enqueueBrainJob)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/jobs", server.listBrainJobs)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/jobs/claim", server.claimBrainJob)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/brain/jobs/{job_id}/complete", server.completeBrainJob)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}", server.getBrainPage)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/core-memory", server.listCoreMemory)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Put("/default/banks/{bank_id}/core-memory/{block_name}", server.upsertCoreMemory)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/consolidate", server.consolidateMemory)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Get("/default/banks/{bank_id}/reflect", server.reflectMemory)
 	})
 
 	r.Route("/v1/model-catalog", func(r chi.Router) {
@@ -102,7 +159,37 @@ func NewServer(deps Dependencies) http.Handler {
 		r.Get("/export/sf", server.exportSFModelCatalog)
 	})
 
+	// MCP JSON-RPC 2.0 endpoints
+	if deps.MCPServer != nil {
+		mcpServer := deps.MCPServer
+		// Multi-bank route: bank from X-Bank-Id header
+		r.Handle("/mcp", mcpHandler(mcpServer, ""))
+		r.Handle("/mcp/", mcpHandler(mcpServer, ""))
+		// Single-bank route: bank from path parameter
+		r.Handle("/mcp/{bank_id}", mcpHandler(mcpServer, ""))
+		r.Handle("/mcp/{bank_id}/", mcpHandler(mcpServer, ""))
+	}
+
 	return r
+}
+
+// mcpHandler wraps the MCP server to inject the bank ID from either the
+// X-Bank-Id header or the chi path parameter {bank_id}.
+func mcpHandler(srv *mcp.Server, defaultBank string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bankID := chi.URLParam(r, "bank_id")
+		if bankID == "" {
+			bankID = r.Header.Get("X-Bank-Id")
+		}
+		// Clone the server with the resolved bank ID so the session store
+		// picks it up as the default for this request.
+		clone := *srv
+		clone.BankID = bankID
+		if clone.BankID == "" {
+			clone.BankID = defaultBank
+		}
+		clone.ServeHTTP(w, r)
+	}
 }
 
 type server struct {

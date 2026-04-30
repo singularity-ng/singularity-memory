@@ -1193,7 +1193,7 @@ class MemoryEngine(MemoryEngineInterface):
                     # (UniqueViolationError, ForeignKeyViolationError, CheckViolationError,
                     # NotNullViolationError, ExclusionViolationError) will never succeed on
                     # retry — the offending row state is already committed. Retrying just
-                    # burns worker capacity. See vectorize-io/hindsight#980.
+                    # burns worker capacity.
                     logger.error(
                         f"Not retrying task {task_type} (integrity violation, deterministic): {type(e).__name__}"
                     )

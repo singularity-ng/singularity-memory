@@ -100,8 +100,8 @@ Current slice: health/version plus bank endpoints behind
 
 ### `src/singularity_memory_server/` — previous engine/reference
 
-Originally derived from [vectorize-io/hindsight](https://github.com/vectorize-io/hindsight)
-(MIT) and assimilated into this codebase under our namespace; see `NOTICE`.
+Historical license attribution for earlier imported code is recorded in
+`NOTICE`.
 Provides retain / recall / reflect operations, Banks, entities, mental
 models, audit logs, async workers, alembic migrations, and the FastAPI
 HTTP + MCP server.
@@ -185,6 +185,4 @@ config is reference history during the migration. Common ones:
 
 ## License & attribution
 
-MIT. See `LICENSE`. Engine code derived from
-[`vectorize-io/hindsight`](https://github.com/vectorize-io/hindsight) (also
-MIT) and assimilated here; see `NOTICE` for details.
+MIT. See `LICENSE`; historical attribution details are in `NOTICE`.

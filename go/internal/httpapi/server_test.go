@@ -44,6 +44,22 @@ type fakeStore struct {
 	getChunks           []store.Chunk
 	getChunksErr        error
 	upsertDocumentErr   error
+	brainPage           *store.BrainPage
+	brainPageErr        error
+	brainPages          []store.BrainPage
+	brainPagesErr       error
+	brainLinks          []store.BrainLink
+	brainLinksErr       error
+	brainTimeline       []store.BrainTimelineEntry
+	brainTimelineEntry  *store.BrainTimelineEntry
+	brainTimelineErr    error
+	brainJob            *store.BrainJob
+	brainJobs           []store.BrainJob
+	brainJobErr         error
+	coreBlocks          []store.CoreMemoryBlock
+	coreBlock           *store.CoreMemoryBlock
+	consolidationResult *store.ConsolidationResult
+	reflection          *store.Reflection
 }
 
 func (f fakeStore) Ping(context.Context) error {
@@ -110,6 +126,72 @@ func (f fakeStore) GetChunks(_ context.Context, _ string, _ string) ([]store.Chu
 
 func (f fakeStore) UpsertDocument(_ context.Context, _ string, _ string, _ string) error {
 	return f.upsertDocumentErr
+}
+
+func (f fakeStore) UpsertBrainPage(_ context.Context, _ string, _ store.BrainPageInput) (*store.BrainPage, error) {
+	return f.brainPage, f.brainPageErr
+}
+
+func (f fakeStore) GetBrainPage(_ context.Context, _ string, _ string) (*store.BrainPage, error) {
+	return f.brainPage, f.brainPageErr
+}
+
+func (f fakeStore) ListBrainPages(_ context.Context, _ string, _ int) ([]store.BrainPage, error) {
+	return f.brainPages, f.brainPagesErr
+}
+
+func (f fakeStore) AddBrainLink(_ context.Context, _ string, _ string, _ store.BrainLink) error {
+	return f.brainLinksErr
+}
+
+func (f fakeStore) GetBrainLinks(_ context.Context, _ string, _ string, _ string, _ bool) ([]store.BrainLink, error) {
+	return f.brainLinks, f.brainLinksErr
+}
+
+func (f fakeStore) AddBrainTimelineEntry(_ context.Context, _ string, _ string, _ store.BrainTimelineEntry) (*store.BrainTimelineEntry, error) {
+	return f.brainTimelineEntry, f.brainTimelineErr
+}
+
+func (f fakeStore) GetBrainTimeline(_ context.Context, _ string, _ string, _ string, _ int) ([]store.BrainTimelineEntry, error) {
+	return f.brainTimeline, f.brainTimelineErr
+}
+
+func (f fakeStore) EnqueueBrainJob(_ context.Context, _ string, _ store.BrainJobInput) (*store.BrainJob, error) {
+	return f.brainJob, f.brainJobErr
+}
+
+func (f fakeStore) ListBrainJobs(_ context.Context, _ string, _ string, _ int) ([]store.BrainJob, error) {
+	return f.brainJobs, f.brainJobErr
+}
+
+func (f fakeStore) ClaimBrainJob(_ context.Context, _ string, _ []string) (*store.BrainJob, error) {
+	return f.brainJob, f.brainJobErr
+}
+
+func (f fakeStore) CompleteBrainJob(_ context.Context, _ string, _ string, _ string, _ map[string]any, _ *string) (*store.BrainJob, error) {
+	return f.brainJob, f.brainJobErr
+}
+
+func (f fakeStore) UpsertCoreMemoryBlock(_ context.Context, _ store.CoreMemoryBlock) (*store.CoreMemoryBlock, error) {
+	return f.coreBlock, nil
+}
+
+func (f fakeStore) ListCoreMemoryBlocks(_ context.Context, _ string) ([]store.CoreMemoryBlock, error) {
+	return f.coreBlocks, nil
+}
+
+func (f fakeStore) RunDeterministicConsolidation(_ context.Context, bankID string, _ int) (*store.ConsolidationResult, error) {
+	if f.consolidationResult != nil {
+		return f.consolidationResult, nil
+	}
+	return &store.ConsolidationResult{BankID: bankID}, nil
+}
+
+func (f fakeStore) ReflectAgentMemory(_ context.Context, bankID string, _ int) (*store.Reflection, error) {
+	if f.reflection != nil {
+		return f.reflection, nil
+	}
+	return &store.Reflection{BankID: bankID}, nil
 }
 
 func (f fakeStore) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error) {

@@ -101,11 +101,11 @@ async def store_chunks_batch(conn, bank_id: str, document_id: str, chunks: list[
         chunk_id_map[chunk.chunk_index] = chunk_id
 
     # Batch upsert all chunks. ON CONFLICT makes this idempotent: re-submitting
-    # a retain under the same document_id (the pattern in vectorize-io/hindsight#977)
-    # may produce chunk_ids that already exist when upstream cascade-delete or
-    # delta-retain paths don't run (or race with a concurrent task). Overwriting
-    # is the correct behavior per the document_id grouping semantics — the caller
-    # intends this chunk to hold the latest content at that (document_id, index).
+    # a retain under the same document_id may produce chunk_ids that already
+    # exist when cascade-delete or delta-retain paths don't run (or race with a
+    # concurrent task). Overwriting is the correct behavior per the document_id
+    # grouping semantics — the caller intends this chunk to hold the latest
+    # content at that (document_id, index).
     await conn.execute(
         f"""
         INSERT INTO {fq_table("chunks")} (chunk_id, document_id, bank_id, chunk_text, chunk_index, content_hash)

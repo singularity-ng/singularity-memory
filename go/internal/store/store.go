@@ -34,7 +34,12 @@ func Open(ctx context.Context, cfg config.Config) (*Store, error) {
 	if profile == "" {
 		profile = storageprofile.VCHORD
 	}
-	return &Store{pool: pool, schema: cfg.DatabaseSchema, storageProfile: profile}, nil
+	s := &Store{pool: pool, schema: cfg.DatabaseSchema, storageProfile: profile}
+	if err := s.EnsureBrainSchema(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Store) Close() {
