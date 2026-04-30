@@ -6,6 +6,10 @@ The same running server can be shared across **Hermes**, **OpenClaw**,
 **Claude Code** (and any other MCP-aware client) so memories persist and
 move with the user, not the tool.
 
+Singularity Memory remains a freestanding provider. ACE may vendor or wrap it,
+but Hermes and OpenClaw are first-class clients of the standalone server. See
+[`STANDALONE.md`](./STANDALONE.md) for the provider contract.
+
 ```
 src/
   singularity_memory/             # CLI shim (singularity-memory serve|mcp|status)

@@ -423,7 +423,10 @@ unit.
 | SM-MIG-012 | 1 | Add pgx connection and health endpoint. | Go `/healthz` proves DB connectivity in CI. |
 | SM-MIG-013 | 1 | Add Go inference-fabric embedding/rerank client. | Batched `/v1/embeddings` calls work against a fake OpenAI-compatible server; provider `batch_size` splitting is covered; input order is preserved; vector-count mismatch fails; optional `dimensions` is serialized only when configured; per-profile dimensions are supported; no LiteLLM dependency is introduced. |
 | SM-MIG-014 | 1 | Implement storage profile config for Postgres 18 + `vchord`/`vchord_bm25`. | Go config preserves current env names; vchord is documented/tested as the production profile that may use native 2560-dimensional Qwen3 embeddings; `pg0`, Apache AGE, TimescaleDB, and `pgvectorscale` are not first-cut storage targets. |
+| SM-MIG-014B | 1 | Decompose Go engine, API, and config. | Organize Go module into domain-specific packages (store, retrieve, httpapi, config) to avoid monolithic files. |
 | SM-MIG-015 | 1 | Implement `GET /v1/banks` in Go. | Frozen fixture comparison passes for list banks. |
+| SM-MIG-016 | 0 | Establish Upstream sync strategy. | Create `UPSTREAM.md` documenting the process for pulling fixes from `vectorize-io/hindsight`. |
+| SM-MIG-017 | 0 | Implement Dependency hygiene. | Add `go.sum` and ensure reproducible builds with pinned dependencies. |
 | SM-MIG-020 | 2 | Port bank profile/create/update/delete endpoints under `/v1/default/banks/{bank_id}` and `/profile`. | Per-endpoint parity tests pass. |
 | SM-MIG-021 | 2 | Port `POST /v1/default/banks/{bank_id}/memories` retain write path. | Retain fixtures pass and DB writes match the frozen contract semantics. |
 | SM-MIG-022 | 2 | Port `POST /v1/default/banks/{bank_id}/memories/recall` recall read path. | Recall JSON parity passes on fixtures; eval recall@k gate passes. |
@@ -442,6 +445,7 @@ unit.
 | SM-MIG-032 | 3 | Add admin destructive-action confirmations and audit trail. | Destructive admin actions require confirmation and emit audit entries. |
 | SM-MIG-033 | 3 | Implement Rate limiting and Authentication. | API token via `Authorization: Bearer` and per-token rate limits for shared tailnet safety. |
 | SM-MIG-034 | 3 | Implement Prometheus metrics and Health transitivity. | `/metrics` endpoint with recall/retain stats and `/healthz` reporting DB/Provider reachability. |
+| SM-MIG-035 | 5 | Implement Auto-start sidecar mode. | Add `singularity-memory sidecar` mode for non-Python consumers (like sf) to spawn and manage the server. |
 | SM-MIG-040 | 4 | Bind fantasy persistent-agent host. | Blocked until sf persistent-agent APIs exist; do not estimate as part of the first run. |
 | SM-MIG-050 | 5 | Flip default serving to Go. | Reverse proxy/config defaults route all endpoints to Go after soak. |
 | SM-MIG-051 | 5 | Archive Python runtime. | Python source remains as historical reference for one release cycle, then removal plan is opened. |

@@ -9,6 +9,8 @@ but didn't exist in the upstream Hindsight codebase either.
 
 The Python-to-Go service migration is tracked in `MIGRATION.md`; use that plan
 for staged Go port work and keep the Python contract frozen during migration.
+The standalone provider contract for Hermes, OpenClaw, and MCP clients is in
+`STANDALONE.md` and must remain valid during ACE integration.
 
 ---
 
@@ -33,21 +35,39 @@ SF and Singularity Memory should split responsibilities cleanly:
   as `packages/evolution` plus `/sf evolve ...`. Memory should provide export
   APIs and evidence feedback APIs for that runner, not host GEPA/DSPy inside
   the hot recall path.
-- End state: ACE Coder is the consolidation target for this service's memory
-  capabilities plus offline GEPA/DSPy/evolution. It already has
+- End state: ACE Coder is the consolidation target for using this service's
+  memory capabilities plus offline GEPA/DSPy/evolution. It already has
   declarative/episodic/procedural memory and an evolution workspace, so the
-  migration should move Singularity Memory's durable contract into ACE over
-  time.
+  migration should make Singularity Memory's durable contract ACE-compatible
+  over time.
+- Do not kill Singularity Memory as a standalone product. It must continue to
+  support a personal Hermes-style agent, including a hosted setup such as
+  `portal.hugo.dk`, as an optional/free memory provider over the same MCP+HTTP
+  contract.
+- Supported deployment shapes should be: standalone Singularity Memory,
+  Singularity Memory as a peer provider beside ACE, and ACE-backed memory that
+  preserves Singularity Memory API semantics.
 - Checked finding: this repo is currently the stronger external brain contract.
   It has standalone MCP+HTTP operation, bank isolation, retain/recall/reflect,
   OpenAPI client generation, thin Hermes/OpenClaw/MCP adapters,
   VectorChord/BM25/RRF retrieval, optional reranking, and a Go runtime
   migration path. ACE has useful internal memory, but not yet this shared
   cross-tool service boundary.
+- ACE should learn the whole brain contract, not just raw recall: banks and
+  workspaces, core-memory blocks, mental models, directives, reflection,
+  feedback, summarize/offload, operation logs, evidence export, retrieval
+  telemetry, auth, and migration tests. That learning must not remove the
+  standalone service mode.
+- Hermes remains a reference for the runtime safety boundary around memory:
+  one memory manager, one active external provider, fenced context injection,
+  sanitization, streaming scrubber, bounded prefetch, and controlled tool
+  exposure. ACE should adopt that boundary in front of the migrated memory
+  service.
 - Migration path: build a compatibility bridge before merging code. Preserve
-  the existing SF memory plugin/API contract, map evidence export and feedback
-  flows onto ACE memory types, run quality/latency/completeness comparisons,
-  then swap the backend when ACE satisfies the narrower downstream contract.
+  the existing SF/Hermes memory plugin/API contract, map evidence export and
+  feedback flows onto ACE memory types, run quality/latency/completeness
+  comparisons, then choose the backend per deployment instead of assuming ACE
+  replaces this service everywhere.
 - Target topology: ACE is the central brain/workbench/evolution service.
   Repo-local runners such as SF, Crush, or customer-approved agents execute in
   customer repos, submit evidence/results to ACE, and receive reviewed policies
@@ -62,9 +82,19 @@ SF and Singularity Memory should split responsibilities cleanly:
   Repo-local runners own checkout access, file edits, tests, secrets exposure,
   and side effects. Memory/ACE stores evidence, traces, eval results, agent
   versions, and approved policies through explicit APIs.
+- Do not make this service an agent executor. ACE agents and minions consume
+  memory primitives through APIs; repo-local runners execute work; memory
+  stores, retrieves, reflects, summarizes, and exports evidence.
 
 Memory/brain TODO:
 
+- Priority 1: harden the Hermes agent memory plugin as the primary standalone
+  provider path. The plugin must be safe and reliable for personal Hermes
+  deployments such as `portal.hugo.dk`: fenced recalled context, sanitized core
+  memory, bounded prefetch, explicit tools, clear setup, status checks, and
+  focused contract/unit tests.
+- Priority 2: harden the OpenClaw plugin against the same standalone server
+  contract after the Hermes provider path is stable.
 - Add an eval-candidate export API for project-scoped evidence. Shape should
   include `task_input`, `expected_behavior`, `failure_mode`, `evidence`,
   `source_session`, `repo`, `risk_family`, and optional `target_artifact`.
