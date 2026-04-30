@@ -76,7 +76,7 @@ class SingularityMemoryClient {
   }
 
   async retain(content: string, context?: string): Promise<string> {
-    const url = `${this.baseUrl}/v1/${this.workspace}/banks/default/memories/retain`;
+    const url = `${this.baseUrl}/v1/${this.workspace}/banks/${this.workspace}/memories/retain`;
     const body: Record<string, unknown> = { content };
     if (context) body.context = context;
     const resp = await fetch(url, {
@@ -90,7 +90,7 @@ class SingularityMemoryClient {
   }
 
   async recall(query: string, limit: number): Promise<RecallResult[]> {
-    const url = `${this.baseUrl}/v1/${this.workspace}/banks/default/memories/recall`;
+    const url = `${this.baseUrl}/v1/${this.workspace}/banks/${this.workspace}/memories/recall`;
     const resp = await fetch(url, {
       method: "POST",
       headers: this.headers(),

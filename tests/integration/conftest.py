@@ -109,3 +109,10 @@ def server_url() -> str:
 def http_client(server_url: str) -> httpx.Client:
     with httpx.Client(base_url=server_url, timeout=30) as client:
         yield client
+
+
+@pytest.fixture()
+def tmp_workspace() -> str:
+    """Unique workspace per test to avoid cross-test pollution."""
+    import uuid
+    return f"test-{uuid.uuid4().hex[:8]}"

@@ -65,3 +65,8 @@ include = [
 singularity_memory_server = ["py.typed", "alembic/**/*", "alembic/script.py.mako"]
 singularity_memory_client = ["py.typed"]
 singularity_memory_client_api = ["py.typed"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests that exercise the HTTP server or cross-component contracts",
+]
