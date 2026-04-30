@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
+	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
 )
 
@@ -708,6 +710,81 @@ func TestBuildIncludedEntities(t *testing.T) {
 	}
 	if len(entity.Observations) != 1 || entity.Observations[0].Text != "Alice knows" {
 		t.Fatalf("unexpected observations: %+v", entity.Observations)
+	}
+}
+
+func TestRecallRerankReordersResults(t *testing.T) {
+	rerankServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/rerank" {
+			t.Fatalf("unexpected rerank path %s", r.URL.Path)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"results": []map[string]any{
+				{"index": 0, "relevance_score": 0.10},
+				{"index": 1, "relevance_score": 0.99},
+			},
+		})
+	}))
+	defer rerankServer.Close()
+
+	store := &fakeRecallStore{
+		fakeStore: fakeStore{},
+		queryFunc: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if strings.Contains(sql, "search_vector <&>") || strings.Contains(sql, "to_bm25query") {
+				return newMockRows([]map[string]any{
+					{
+						"id": "mem-1", "text": "First BM25 result", "context": nil,
+						"event_date": nil, "occurred_start": nil, "occurred_end": nil,
+						"mentioned_at": nil, "fact_type": "world", "document_id": nil,
+						"chunk_id": nil, "tags": []string{}, "metadata": []byte(`{}`),
+						"proof_count": 0, "similarity": nil, "bm25_score": -2.0,
+					},
+					{
+						"id": "mem-2", "text": "Second reranked result", "context": nil,
+						"event_date": nil, "occurred_start": nil, "occurred_end": nil,
+						"mentioned_at": nil, "fact_type": "world", "document_id": nil,
+						"chunk_id": nil, "tags": []string{}, "metadata": []byte(`{}`),
+						"proof_count": 0, "similarity": nil, "bm25_score": -1.0,
+					},
+				}), nil
+			}
+			return newMockRows(nil), nil
+		},
+	}
+
+	cfg := config.Config{
+		DatabaseSchema:    "public",
+		FeatureFlags:      map[string]bool{"banks": true, "memories": true},
+		RetainBatchTokens: 8000,
+		RerankGatewayURL:  rerankServer.URL,
+		RerankModel:       "test-reranker",
+		RerankTopK:        2,
+	}
+	handler := NewServer(Dependencies{
+		Config:       cfg,
+		Store:        store,
+		RerankClient: rerank.NewClient(cfg, log.NewWithOptions(nil, log.Options{Level: log.ErrorLevel})),
+	})
+
+	req := makeRecallRequest(t, `{"query":"rerank me","rerank":true,"trace":true}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	resp := parseRecallResponse(t, rec)
+	if len(resp.Results) != 2 {
+		t.Fatalf("expected 2 results, got %+v", resp.Results)
+	}
+	if resp.Results[0].ID != "mem-2" {
+		t.Fatalf("expected mem-2 first after rerank, got %+v", resp.Results)
+	}
+	if resp.Results[0].RerankScore != 0.99 || resp.Results[1].RerankScore != 0.10 {
+		t.Fatalf("unexpected rerank scores: %+v", resp.Results)
+	}
+	if _, ok := resp.Trace["rerank_error"]; ok {
+		t.Fatalf("did not expect rerank error in trace: %+v", resp.Trace)
 	}
 }
 
