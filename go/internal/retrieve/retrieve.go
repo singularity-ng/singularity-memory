@@ -31,11 +31,13 @@ type FullRetrievalResult struct {
 	Tags              []string
 	Metadata          map[string]any
 	ProofCount        int
-	Similarity        float64 // semantic lane
-	BM25Score         float64 // BM25 lane (converted to positive)
-	Activation        float64 // graph lane
-	TemporalScore     float64 // temporal lane (combined)
-	TemporalProximity float64 // temporal lane (raw proximity)
+	Entities          []string // entity canonical names from unit_entities join
+	SourceFactIDs     []string // source fact IDs for observation tracking
+	Similarity        float64  // semantic lane
+	BM25Score         float64  // BM25 lane (converted to positive)
+	Activation        float64  // graph lane
+	TemporalScore     float64  // temporal lane (combined)
+	TemporalProximity float64  // temporal lane (raw proximity)
 }
 
 // ToRRFResult converts a full result into the slim RRF input.
