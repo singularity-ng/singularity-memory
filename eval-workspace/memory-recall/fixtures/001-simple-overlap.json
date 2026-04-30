@@ -1,0 +1,25 @@
+{
+  "name": "simple-overlap",
+  "description": "Two-lane overlap with equal weights. Document 'b' appears in both lanes and should win.",
+  "query": "machine learning frameworks",
+  "k": 60,
+  "weights": {
+    "semantic": 1.0,
+    "bm25": 1.0
+  },
+  "lanes": {
+    "semantic": [
+      { "id": "a", "score": 0.90 },
+      { "id": "b", "score": 0.80 }
+    ],
+    "bm25": [
+      { "id": "b", "score": 0.95 },
+      { "id": "c", "score": 0.70 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "b", "rank": 1 },
+    { "id": "a", "rank": 2 },
+    { "id": "c", "rank": 3 }
+  ]
+}

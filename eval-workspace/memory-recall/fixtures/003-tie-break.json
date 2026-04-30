@@ -1,0 +1,28 @@
+{
+  "name": "tie-break",
+  "description": "Identical RRF scores for two documents; tie-breaker resolves order based on raw score sum. A third lane gives 'a' a tiny edge.",
+  "query": "neural network architecture",
+  "k": 60,
+  "weights": {
+    "semantic": 1.0,
+    "bm25": 1.0,
+    "graph": 1.0
+  },
+  "lanes": {
+    "semantic": [
+      { "id": "a", "score": 10.0 },
+      { "id": "b", "score": 5.0 }
+    ],
+    "bm25": [
+      { "id": "b", "score": 10.0 },
+      { "id": "a", "score": 5.0 }
+    ],
+    "graph": [
+      { "id": "a", "score": 0.1 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "a", "rank": 1 },
+    { "id": "b", "rank": 2 }
+  ]
+}

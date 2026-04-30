@@ -1,0 +1,22 @@
+{
+  "name": "weighted-dominance",
+  "description": "Same document in all four lanes with default weights. Verifies that each lane contributes the correct weighted score.",
+  "query": "distributed systems",
+  "lanes": {
+    "semantic": [
+      { "id": "x", "score": 0.5 }
+    ],
+    "bm25": [
+      { "id": "x", "score": 0.5 }
+    ],
+    "graph": [
+      { "id": "x", "score": 0.5 }
+    ],
+    "temporal": [
+      { "id": "x", "score": 0.5 }
+    ]
+  },
+  "expected_top_k": [
+    { "id": "x", "rank": 1 }
+  ]
+}
