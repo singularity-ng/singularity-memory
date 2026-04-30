@@ -12,10 +12,10 @@ import (
 type Lane string
 
 const (
-	LaneSemantic  Lane = "semantic"
-	LaneBM25      Lane = "bm25"
-	LaneGraph     Lane = "graph"
-	LaneTemporal  Lane = "temporal"
+	LaneSemantic Lane = "semantic"
+	LaneBM25     Lane = "bm25"
+	LaneGraph    Lane = "graph"
+	LaneTemporal Lane = "temporal"
 )
 
 // ---------------------------------------------------------------------------
@@ -96,10 +96,7 @@ func ReciprocalRankFusion(inputs []RRFInput, config RRFConfig) []MergedCandidate
 	sourceRanks := make(map[string]map[Lane]int)
 
 	for _, in := range inputs {
-		weight := config.Weights[in.Lane]
-		if weight == 0 {
-			weight = 1.0
-		}
+		weight := rrfLaneWeight(in.Lane, config)
 
 		// Sort descending by raw score so rank 1 = highest score.
 		results := make([]RetrievalResult, len(in.Results))
@@ -108,9 +105,17 @@ func ReciprocalRankFusion(inputs []RRFInput, config RRFConfig) []MergedCandidate
 			return results[i].Score > results[j].Score
 		})
 
-		for rank, r := range results {
+		seenInLane := make(map[string]struct{}, len(results))
+		laneRank := 0
+		for _, r := range results {
+			if _, seen := seenInLane[r.ID]; seen {
+				continue
+			}
+			seenInLane[r.ID] = struct{}{}
+			laneRank++
+
 			// rank is 0-based here; formula uses 1-based rank.
-			oneBasedRank := rank + 1
+			oneBasedRank := laneRank
 			docID := r.ID
 
 			rrfScores[docID] += weight * (1.0 / (float64(k) + float64(oneBasedRank)))
@@ -147,6 +152,19 @@ func ReciprocalRankFusion(inputs []RRFInput, config RRFConfig) []MergedCandidate
 	}
 
 	return merged
+}
+
+func rrfLaneWeight(lane Lane, config RRFConfig) float64 {
+	if config.Weights != nil {
+		if weight, ok := config.Weights[lane]; ok {
+			return weight
+		}
+	}
+	defaults := DefaultRRFConfig().Weights
+	if weight, ok := defaults[lane]; ok {
+		return weight
+	}
+	return 1.0
 }
 
 // ---------------------------------------------------------------------------

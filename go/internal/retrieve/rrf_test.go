@@ -114,6 +114,43 @@ func TestReciprocalRankFusion_tieBreak(t *testing.T) {
 	}
 }
 
+func TestReciprocalRankFusion_dedupesWithinLane(t *testing.T) {
+	input := RRFInput{
+		Lane: LaneBM25,
+		Results: []RetrievalResult{
+			{ID: "a", Score: 10},
+			{ID: "a", Score: 9},
+			{ID: "b", Score: 8},
+		},
+	}
+
+	merged := ReciprocalRankFusion([]RRFInput{input}, DefaultRRFConfig())
+
+	if len(merged) != 2 {
+		t.Fatalf("expected 2 unique candidates, got %d", len(merged))
+	}
+	if merged[0].ID != "a" || merged[0].SourceRanks[LaneBM25] != 1 {
+		t.Fatalf("expected a to keep rank 1, got %+v", merged[0])
+	}
+	if merged[1].ID != "b" || merged[1].SourceRanks[LaneBM25] != 2 {
+		t.Fatalf("expected b to compact to rank 2, got %+v", merged[1])
+	}
+}
+
+func TestReciprocalRankFusion_missingWeightUsesDefault(t *testing.T) {
+	inputs := []RRFInput{
+		{Lane: LaneGraph, Results: []RetrievalResult{{ID: "x", Score: 1}}},
+	}
+	cfg := RRFConfig{K: 60, Weights: map[Lane]float64{LaneBM25: 1}}
+
+	merged := ReciprocalRankFusion(inputs, cfg)
+
+	expected := 0.5 / 61.0
+	if len(merged) != 1 || math.Abs(merged[0].RRFScore-expected) > 1e-9 {
+		t.Fatalf("expected default graph weight score %.9f, got %+v", expected, merged)
+	}
+}
+
 func TestReciprocalRankFusion_emptyInput(t *testing.T) {
 	merged := ReciprocalRankFusion(nil, DefaultRRFConfig())
 	if len(merged) != 0 {
