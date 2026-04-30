@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/log"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
 	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
@@ -41,6 +42,10 @@ type Store interface {
 
 	// Document upsert
 	UpsertDocument(ctx context.Context, bankID string, documentID string, text string) error
+
+	// Querier access for retrieval lanes
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 // Embedder is the interface satisfied by embed.Client.
