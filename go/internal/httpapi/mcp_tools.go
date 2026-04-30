@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/singularity-ng/singularity-memory/go/internal/mcp"
 )
 
@@ -40,6 +42,7 @@ func (b *mcpToolBackend) Retain(ctx context.Context, bankID string, args map[str
 	reqBody, _ := json.Marshal(retainRequest{Items: []retainItem{item}})
 	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/"+bankID+"/memories", bytes.NewReader(reqBody))
 	req = req.WithContext(ctx)
+	req = withBankID(req, bankID)
 	rec := httptest.NewRecorder()
 	b.s.retain(rec, req)
 
@@ -64,6 +67,7 @@ func (b *mcpToolBackend) Recall(ctx context.Context, bankID string, args map[str
 	body, _ := json.Marshal(reqBody)
 	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/"+bankID+"/memories/recall", bytes.NewReader(body))
 	req = req.WithContext(ctx)
+	req = withBankID(req, bankID)
 	rec := httptest.NewRecorder()
 	b.s.recall(rec, req)
 
@@ -91,6 +95,7 @@ func (b *mcpToolBackend) GetBank(ctx context.Context, bankID string, args map[st
 	}
 	req := httptest.NewRequest(http.MethodGet, "/v1/default/banks/"+targetBank+"/profile", nil)
 	req = req.WithContext(ctx)
+	req = withBankID(req, targetBank)
 	rec := httptest.NewRecorder()
 	b.s.getBank(rec, req)
 
@@ -142,4 +147,10 @@ func toStringSlice(v []any) []string {
 		}
 	}
 	return out
+}
+
+func withBankID(req *http.Request, bankID string) *http.Request {
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("bank_id", bankID)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, routeCtx))
 }

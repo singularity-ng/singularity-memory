@@ -69,8 +69,14 @@ func TestMCPRouteInitialize(t *testing.T) {
 func TestMCPRouteToolsCallWithHeaderBank(t *testing.T) {
 	mcpSrv := mcp.NewServer()
 	handler := NewServer(Dependencies{
-		Config:    config.Config{DatabaseSchema: "public", MCPEnabled: true},
-		MCPServer: mcpSrv,
+		Config: config.Config{
+			DatabaseSchema:    "public",
+			MCPEnabled:        true,
+			RetainBatchTokens: 8000,
+		},
+		Store:       fakeStore{insertMemoryUnitID: "unit-123"},
+		EmbedClient: &fakeEmbedClient{},
+		MCPServer:   mcpSrv,
 	})
 
 	payload := mcp.JSONRPCRequest{
@@ -102,7 +108,6 @@ func TestMCPRouteToolsCallWithHeaderBank(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %+v", resp.Error)
 	}
-
 	sess := mcpSrv.Sessions.Get("sess-2")
 	if sess == nil {
 		t.Fatal("expected session")
@@ -115,8 +120,14 @@ func TestMCPRouteToolsCallWithHeaderBank(t *testing.T) {
 func TestMCPRouteToolsCallWithPathBank(t *testing.T) {
 	mcpSrv := mcp.NewServer()
 	handler := NewServer(Dependencies{
-		Config:    config.Config{DatabaseSchema: "public", MCPEnabled: true},
-		MCPServer: mcpSrv,
+		Config: config.Config{
+			DatabaseSchema:    "public",
+			MCPEnabled:        true,
+			RetainBatchTokens: 8000,
+		},
+		Store:       fakeStore{insertMemoryUnitID: "unit-123"},
+		EmbedClient: &fakeEmbedClient{},
+		MCPServer:   mcpSrv,
 	})
 
 	payload := mcp.JSONRPCRequest{
@@ -147,7 +158,6 @@ func TestMCPRouteToolsCallWithPathBank(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %+v", resp.Error)
 	}
-
 	sess := mcpSrv.Sessions.Get("sess-3")
 	if sess == nil {
 		t.Fatal("expected session")
