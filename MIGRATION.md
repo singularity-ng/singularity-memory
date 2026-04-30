@@ -342,6 +342,8 @@ Required lanes:
 | `parity-and-evals` | research | `docs/migration/research/parity-and-evals.md` — fixture strategy, byte comparison rules, recall@k eval strategy. |
 | `deployment-and-rollback` | research | `docs/migration/research/deployment-and-rollback.md` — reverse proxy flips, feature flags, one-command rollback, tailnet placement. |
 | `sf-integration` | research | `docs/migration/research/sf-integration.md` — sf SPEC §16-18 compatibility, generated Go client needs, Phase 4 blocking APIs. |
+| `security-and-filtering` | research | `docs/migration/research/security-and-filtering.md` — Gitleaks-style secret scanning patterns, redact vs block logic, and tool-context-aware recall filter design. |
+| `extraction-and-consolidation` | research | `docs/migration/research/extraction-and-consolidation.md` — LLM-driven end-of-turn fact extraction, dedup-by-inspection strategy, and auto-backfill/consolidation loop scheduling. |
 
 Then the parent planner must write:
 
@@ -425,14 +427,21 @@ unit.
 | SM-MIG-020 | 2 | Port bank profile/create/update/delete endpoints under `/v1/default/banks/{bank_id}` and `/profile`. | Per-endpoint parity tests pass. |
 | SM-MIG-021 | 2 | Port `POST /v1/default/banks/{bank_id}/memories` retain write path. | Retain fixtures pass and DB writes match the frozen contract semantics. |
 | SM-MIG-022 | 2 | Port `POST /v1/default/banks/{bank_id}/memories/recall` recall read path. | Recall JSON parity passes on fixtures; eval recall@k gate passes. |
+| SM-MIG-022B | 2 | Implement two-tier reranking. | Port the fast-then-deep cross-encoder ranking logic for high-precision recall. |
 | SM-MIG-023 | 2 | Port entities/documents/mental-model/directive endpoints. | Per-resource parity tests pass. |
 | SM-MIG-024 | 2 | Port audit/operations/files/webhook endpoints. | Per-resource parity tests pass. |
 | SM-MIG-025 | 2 | Port MCP HTTP wire. | Recorded MCP sessions replay against Go with equivalent responses to the frozen transcript. |
 | SM-MIG-026 | 2 | Add native brain pages, links, timeline, and importer. | Go stores page/source/link/timeline state in Postgres, writes pages into memory units for recall, and imports external brain-page data into the native schema. |
 | SM-MIG-027 | 2 | Add durable brain job queue. | Go can enqueue, list, claim, and complete `brain_jobs` so background maintenance is server-owned and inspectable. |
+| SM-MIG-028 | 2 | Implement Team-memory secret scanner. | Rejects or redacts secrets (API keys, tokens) during retain and core-memory writes using gitleaks-style regex. |
+| SM-MIG-029 | 2 | Implement Tool-context-aware retrieval filter. | Recall filters out usage docs for tools currently in use by the agent, based on optional `tool_context` param. |
 | SM-MIG-030 | 3 | Port background worker execution. | Existing operation queue drains correctly under Go worker in test. |
+| SM-MIG-030B | 3 | Implement End-of-turn extraction. | LLM-driven extraction that checks messages against existing memories to write only fresh facts (opt-in). |
+| SM-MIG-030C | 3 | Implement Auto-backfill and Consolidation loops. | Port background maintenance loops for embedding backfill and memory consolidation. |
 | SM-MIG-031 | 3 | Build Wish admin shell. | Admin SSH session starts and lists banks/operations. |
 | SM-MIG-032 | 3 | Add admin destructive-action confirmations and audit trail. | Destructive admin actions require confirmation and emit audit entries. |
+| SM-MIG-033 | 3 | Implement Rate limiting and Authentication. | API token via `Authorization: Bearer` and per-token rate limits for shared tailnet safety. |
+| SM-MIG-034 | 3 | Implement Prometheus metrics and Health transitivity. | `/metrics` endpoint with recall/retain stats and `/healthz` reporting DB/Provider reachability. |
 | SM-MIG-040 | 4 | Bind fantasy persistent-agent host. | Blocked until sf persistent-agent APIs exist; do not estimate as part of the first run. |
 | SM-MIG-050 | 5 | Flip default serving to Go. | Reverse proxy/config defaults route all endpoints to Go after soak. |
 | SM-MIG-051 | 5 | Archive Python runtime. | Python source remains as historical reference for one release cycle, then removal plan is opened. |

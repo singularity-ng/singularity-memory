@@ -12,6 +12,58 @@ for staged Go port work and keep the Python contract frozen during migration.
 
 ---
 
+## Cross-repo contract: SF evals, memory, and GEPA/DSPy self-evolution
+
+SF and Singularity Memory should split responsibilities cleanly:
+
+- SF owns the project workflow control plane: TODO triage, backlog handoff,
+  eval artifacts, harness proposals, deterministic gates, reviewed diffs, and
+  dispatch rules.
+- Singularity Memory owns durable experience: session traces, user corrections,
+  repeated failures, successful patterns, evidence IDs, source sessions, and
+  recall/export APIs.
+- GEPA/DSPy should run as an offline self-evolution lab, not inside normal
+  runtime memory recall. It consumes approved eval datasets and memory-exported
+  candidates, proposes prompt/skill/tool-description diffs, and hands those
+  diffs back to SF as reviewable work.
+- Accepted GEPA outputs become tracked repo artifacts or versioned SF resources,
+  not raw memory entries.
+- Future home should be an offline evolution runner, either a separate repo
+  such as `singularity-evolution` or a clearly isolated SF package/command such
+  as `packages/evolution` plus `/sf evolve ...`. Memory should provide export
+  APIs and evidence feedback APIs for that runner, not host GEPA/DSPy inside
+  the hot recall path.
+
+Memory/brain TODO:
+
+- Add an eval-candidate export API for project-scoped evidence. Shape should
+  include `task_input`, `expected_behavior`, `failure_mode`, `evidence`,
+  `source_session`, `repo`, `risk_family`, and optional `target_artifact`.
+- Keep raw memories, exported eval candidates, and approved eval suites as
+  separate concepts. Raw memory is evidence, not a test.
+- Support queries like: "export candidate evals for repeated SF planning
+  failures in this repo" and "export candidate evals for tool-selection
+  failures involving file edits".
+- Store feedback from SF eval results so memory can learn which extracted
+  candidates became useful gates and which were noisy.
+- Do not let memory directly mutate runtime prompts, skills, or tool
+  descriptions. Route all self-evolution output through reviewed SF diffs.
+
+SF TODO triage handoff:
+
+- `/sf todo triage` reads root `TODO.md`, writes `.sf/triage/inbox/*.jsonl`,
+  `.sf/triage/reports/*.md`, and `.sf/triage/evals/*.evals.jsonl`, then clears
+  processed notes.
+- SF backlog/planning consumes human-visible implementation tasks only after
+  explicit promotion/copying. Auto-mode should not execute backlog directly.
+- SF eval tooling consumes `.sf/triage/evals/*.evals.jsonl`.
+- Singularity Memory consumes only evidence-bearing memory requirements or
+  source-linked lessons, not raw dump notes.
+- Preferred triage model tier is MiniMax M2.7 highspeed when available, then
+  MiniMax M2.5 highspeed, because this is fast structuring/classification work.
+
+---
+
 ## P0 — required before downstream tools depend on this in production
 
 ### 1. Test suite
