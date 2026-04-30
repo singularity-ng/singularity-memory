@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
+	"github.com/singularity-ng/singularity-memory/go/internal/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -32,9 +33,9 @@ func newMockRows(data []map[string]any) *mockRows {
 	return &mockRows{data: data, idx: -1}
 }
 
-func (m *mockRows) Close()                                 { m.closed = true }
-func (m *mockRows) Err() error                             { return m.errVal }
-func (m *mockRows) CommandTag() pgconn.CommandTag          { return pgconn.CommandTag{} }
+func (m *mockRows) Close()                                       { m.closed = true }
+func (m *mockRows) Err() error                                   { return m.errVal }
+func (m *mockRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (m *mockRows) FieldDescriptions() []pgconn.FieldDescription { return nil }
 func (m *mockRows) Next() bool {
 	m.idx++
@@ -172,6 +173,10 @@ func parseRecallMap(t *testing.T, rec *httptest.ResponseRecorder) map[string]any
 		t.Fatalf("unmarshal response: %v", err)
 	}
 	return body
+}
+
+func testStringPtr(s string) *string {
+	return &s
 }
 
 // ---------------------------------------------------------------------------
@@ -623,4 +628,107 @@ func TestTagFiltering(t *testing.T) {
 	if !found {
 		t.Fatalf("expected at least one result with tag user_a")
 	}
+}
+
+func TestRecallIncludeChunks(t *testing.T) {
+	store := &fakeRecallStore{
+		fakeStore: fakeStore{
+			getChunks: []store.Chunk{
+				{
+					ChunkID:    "chunk-1",
+					DocumentID: "doc-1",
+					BankID:     "user123",
+					ChunkText:  "one two three four five",
+					ChunkIndex: 2,
+				},
+			},
+		},
+		queryFunc: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if strings.Contains(sql, "search_vector <&>") || strings.Contains(sql, "to_bm25query") {
+				return newMockRows([]map[string]any{
+					{
+						"id": "mem-1", "text": "Memory with chunk", "context": nil,
+						"event_date": nil, "occurred_start": nil, "occurred_end": nil,
+						"mentioned_at": nil, "fact_type": "world", "document_id": testStringPtr("doc-1"),
+						"chunk_id": testStringPtr("chunk-1"), "tags": []string{},
+						"metadata": []byte(`{}`), "proof_count": 0,
+						"similarity": nil, "bm25_score": -1.5,
+					},
+				}), nil
+			}
+			return newMockRows(nil), nil
+		},
+	}
+
+	handler := NewServer(Dependencies{
+		Config: config.Config{
+			DatabaseSchema:    "public",
+			FeatureFlags:      map[string]bool{"banks": true, "memories": true},
+			RetainBatchTokens: 8000,
+		},
+		Store: store,
+	})
+
+	req := makeRecallRequest(t, `{"query":"chunk","include":{"chunks":{"max_tokens":3}}}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	resp := parseRecallResponse(t, rec)
+	chunk, ok := resp.Chunks["chunk-1"]
+	if !ok {
+		t.Fatalf("expected chunk-1 in response, got %+v", resp.Chunks)
+	}
+	if chunk.Text != "one two three" || !chunk.Truncated || chunk.ChunkIndex != 2 {
+		t.Fatalf("unexpected chunk payload: %+v", chunk)
+	}
+}
+
+func TestBuildIncludedEntities(t *testing.T) {
+	srv := &server{deps: Dependencies{
+		Store: fakeStore{
+			getEntityObs: []store.EntityObservation{
+				{Text: "Alice knows machine learning", MentionedAt: time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)},
+			},
+		},
+	}}
+
+	entities := srv.buildIncludedEntities(context.Background(), "user123", []recallResult{
+		{ID: "mem-1", Entities: []string{"Alice"}},
+	}, 2)
+
+	entity, ok := entities["Alice"]
+	if !ok {
+		t.Fatalf("expected Alice entity, got %+v", entities)
+	}
+	if entity.CanonicalName != "Alice" || entity.EntityID != "Alice" {
+		t.Fatalf("unexpected entity identity: %+v", entity)
+	}
+	if len(entity.Observations) != 1 || entity.Observations[0].Text != "Alice knows" {
+		t.Fatalf("unexpected observations: %+v", entity.Observations)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// fakeRerankClient is a test double for the rerank client.
+// ---------------------------------------------------------------------------
+
+type fakeRerankClient struct {
+	rerankFunc func(ctx context.Context, query string, documents []string) ([]rerank.Result, error)
+	callCount  int
+}
+
+func (f *fakeRerankClient) Rerank(ctx context.Context, query string, documents []string) ([]rerank.Result, error) {
+	f.callCount++
+	if f.rerankFunc != nil {
+		return f.rerankFunc(ctx, query, documents)
+	}
+	// Default: return scores in reverse order (highest for last document)
+	results := make([]rerank.Result, len(documents))
+	for i := range documents {
+		results[i] = rerank.Result{Index: i, RelevanceScore: float64(len(documents) - i)}
+	}
+	return results, nil
 }

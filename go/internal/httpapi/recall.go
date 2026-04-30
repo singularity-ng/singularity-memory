@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,6 +29,7 @@ type recallRequest struct {
 	QueryTimestamp *time.Time      `json:"query_timestamp,omitempty"`
 	Include        *includeOptions `json:"include,omitempty"`
 	Trace          bool            `json:"trace,omitempty"`
+	Rerank         bool            `json:"rerank,omitempty"`
 }
 
 type includeOptions struct {
@@ -68,6 +71,7 @@ type recallResult struct {
 	Tags          []string          `json:"tags,omitempty"`
 	Metadata      map[string]string `json:"metadata,omitempty"`
 	SourceFactIDs []string          `json:"source_fact_ids,omitempty"`
+	RerankScore   float64           `json:"rerank_score,omitempty"`
 }
 
 type chunkData struct {
@@ -264,6 +268,31 @@ func (s *server) recall(w http.ResponseWriter, r *http.Request) {
 		results = append(results, fullResultToRecallResult(src, cand.SourceRanks))
 	}
 
+	// Reranking: if requested and client is configured, reorder by relevance score.
+	var rerankLatency time.Duration
+	var rerankErrStr string
+	if req.Rerank && s.deps.RerankClient != nil && len(results) > 0 {
+		rerankStart := time.Now()
+		docs := make([]string, len(results))
+		for i, r := range results {
+			docs[i] = r.Text
+		}
+		scores, err := s.deps.RerankClient.Rerank(ctx, req.Query, docs)
+		if err != nil {
+			s.logRecallError("rerank failed", err)
+			rerankErrStr = err.Error()
+		} else if len(scores) == len(results) {
+			for i := range results {
+				results[i].RerankScore = scores[i].RelevanceScore
+			}
+			// Reorder results by rerank score descending.
+			sort.Slice(results, func(i, j int) bool {
+				return results[i].RerankScore > results[j].RerankScore
+			})
+		}
+		rerankLatency = time.Since(rerankStart)
+	}
+
 	// Observability logging.
 	totalLatency := time.Since(start)
 	s.logRecallInfo("recall",
@@ -280,6 +309,7 @@ func (s *server) recall(w http.ResponseWriter, r *http.Request) {
 		"bm25_ms", bm25Latency.Milliseconds(),
 		"graph_ms", graphLatency.Milliseconds(),
 		"temporal_ms", temporalLatency.Milliseconds(),
+		"rerank_ms", rerankLatency.Milliseconds(),
 		"total_ms", totalLatency.Milliseconds(),
 	)
 
@@ -293,7 +323,7 @@ func (s *server) recall(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Trace {
-		resp.Trace = map[string]any{
+		traceMap := map[string]any{
 			"num_results":  len(results),
 			"query":        req.Query,
 			"time_seconds": fmt.Sprintf("%.3f", totalLatency.Seconds()),
@@ -309,18 +339,22 @@ func (s *server) recall(w http.ResponseWriter, r *http.Request) {
 				"graph":    graphLatency.Milliseconds(),
 				"temporal": temporalLatency.Milliseconds(),
 				"rrf":      rrfLatency.Milliseconds(),
+				"rerank":   rerankLatency.Milliseconds(),
 				"total":    totalLatency.Milliseconds(),
 			},
 		}
+		if rerankErrStr != "" {
+			traceMap["rerank_error"] = rerankErrStr
+		}
+		resp.Trace = traceMap
 	}
 
-	// include.entities / include.chunks deferred to S04.
 	if req.Include != nil {
 		if req.Include.Entities != nil {
-			resp.Entities = map[string]entityState{}
+			resp.Entities = s.buildIncludedEntities(ctx, bankID, results, req.Include.Entities.MaxTokens)
 		}
 		if req.Include.Chunks != nil {
-			resp.Chunks = map[string]chunkData{}
+			resp.Chunks = s.buildIncludedChunks(ctx, bankID, results, req.Include.Chunks.MaxTokens)
 		}
 	}
 
@@ -352,11 +386,12 @@ func buildResultMap(lanes ...[]*retrieve.FullRetrievalResult) map[string]*retrie
 
 func fullResultToRecallResult(r *retrieve.FullRetrievalResult, sourceRanks map[retrieve.Lane]int) recallResult {
 	res := recallResult{
-		ID:       r.ID,
-		Text:     r.Text,
-		Type:     r.FactType,
-		Tags:     r.Tags,
-		Entities: []string{},
+		ID:            r.ID,
+		Text:          r.Text,
+		Type:          r.FactType,
+		Tags:          r.Tags,
+		Entities:      append([]string(nil), r.Entities...),
+		SourceFactIDs: append([]string(nil), r.SourceFactIDs...),
 	}
 
 	if r.Context != nil {
@@ -410,6 +445,91 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func (s *server) buildIncludedChunks(ctx context.Context, bankID string, results []recallResult, maxTokens int) map[string]chunkData {
+	chunks := make(map[string]chunkData)
+	if s.deps.Store == nil {
+		return chunks
+	}
+
+	documentIDs := make(map[string]struct{})
+	for _, result := range results {
+		if result.DocumentID != nil && *result.DocumentID != "" {
+			documentIDs[*result.DocumentID] = struct{}{}
+		}
+	}
+
+	for documentID := range documentIDs {
+		rows, err := s.deps.Store.GetChunks(ctx, bankID, documentID)
+		if err != nil {
+			s.logRecallError("include chunks failed", err)
+			continue
+		}
+		for _, row := range rows {
+			text, truncated := truncateWords(row.ChunkText, maxTokens)
+			chunks[row.ChunkID] = chunkData{
+				ID:         row.ChunkID,
+				Text:       text,
+				ChunkIndex: row.ChunkIndex,
+				Truncated:  truncated,
+			}
+		}
+	}
+
+	return chunks
+}
+
+func (s *server) buildIncludedEntities(ctx context.Context, bankID string, results []recallResult, maxTokens int) map[string]entityState {
+	entities := make(map[string]entityState)
+	if s.deps.Store == nil {
+		return entities
+	}
+
+	names := make(map[string]struct{})
+	for _, result := range results {
+		for _, name := range result.Entities {
+			if strings.TrimSpace(name) != "" {
+				names[name] = struct{}{}
+			}
+		}
+	}
+
+	for name := range names {
+		observations, err := s.deps.Store.GetEntityObservations(ctx, bankID, name, 20)
+		if err != nil {
+			s.logRecallError("include entities failed", err)
+			continue
+		}
+
+		state := entityState{
+			EntityID:      name,
+			CanonicalName: name,
+			Observations:  make([]entityObservation, 0, len(observations)),
+		}
+		for _, observation := range observations {
+			text, _ := truncateWords(observation.Text, maxTokens)
+			mentionedAt := observation.MentionedAt.Format(time.RFC3339)
+			state.Observations = append(state.Observations, entityObservation{
+				Text:        text,
+				MentionedAt: &mentionedAt,
+			})
+		}
+		entities[name] = state
+	}
+
+	return entities
+}
+
+func truncateWords(text string, maxTokens int) (string, bool) {
+	if maxTokens <= 0 {
+		return text, false
+	}
+	words := strings.Fields(text)
+	if len(words) <= maxTokens {
+		return text, false
+	}
+	return strings.Join(words[:maxTokens], " "), true
 }
 
 func (s *server) logRecallError(message string, err error) {
