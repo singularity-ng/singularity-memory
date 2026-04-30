@@ -33,6 +33,35 @@ SF and Singularity Memory should split responsibilities cleanly:
   as `packages/evolution` plus `/sf evolve ...`. Memory should provide export
   APIs and evidence feedback APIs for that runner, not host GEPA/DSPy inside
   the hot recall path.
+- End state: ACE Coder is the consolidation target for this service's memory
+  capabilities plus offline GEPA/DSPy/evolution. It already has
+  declarative/episodic/procedural memory and an evolution workspace, so the
+  migration should move Singularity Memory's durable contract into ACE over
+  time.
+- Checked finding: this repo is currently the stronger external brain contract.
+  It has standalone MCP+HTTP operation, bank isolation, retain/recall/reflect,
+  OpenAPI client generation, thin Hermes/OpenClaw/MCP adapters,
+  VectorChord/BM25/RRF retrieval, optional reranking, and a Go runtime
+  migration path. ACE has useful internal memory, but not yet this shared
+  cross-tool service boundary.
+- Migration path: build a compatibility bridge before merging code. Preserve
+  the existing SF memory plugin/API contract, map evidence export and feedback
+  flows onto ACE memory types, run quality/latency/completeness comparisons,
+  then swap the backend when ACE satisfies the narrower downstream contract.
+- Target topology: ACE is the central brain/workbench/evolution service.
+  Repo-local runners such as SF, Crush, or customer-approved agents execute in
+  customer repos, submit evidence/results to ACE, and receive reviewed policies
+  or candidate diffs back. Memory should support that flow without requiring
+  repo-local runners to know ACE internals.
+- SF may eventually become a workflow/gate adapter inside a Crush-style
+  repo-local runner. Memory should not care whether evidence arrives from
+  classic SF, Crush-with-SF-gates, or another approved local executor; it should
+  normalize source, repo, task, eval result, and review outcome into the same
+  ACE-bound evidence contract.
+- External/customer repositories should remain outside the ACE server boundary.
+  Repo-local runners own checkout access, file edits, tests, secrets exposure,
+  and side effects. Memory/ACE stores evidence, traces, eval results, agent
+  versions, and approved policies through explicit APIs.
 
 Memory/brain TODO:
 
