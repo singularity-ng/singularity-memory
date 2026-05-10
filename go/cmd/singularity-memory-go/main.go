@@ -103,6 +103,7 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	// Log enabled feature flags at startup
 	if len(cfg.FeatureFlags) > 0 {
 		enabled := make([]string, 0, len(cfg.FeatureFlags))
 		for name, on := range cfg.FeatureFlags {
@@ -112,6 +113,8 @@ func run() error {
 		}
 		if len(enabled) > 0 {
 			log.Info("feature flags enabled", "flags", enabled)
+		} else {
+			log.Info("feature flags: none enabled")
 		}
 	}
 
