@@ -35,7 +35,7 @@ func Open(ctx context.Context, cfg config.Config) (*Store, error) {
 		profile = storageprofile.VCHORD
 	}
 	s := &Store{pool: pool, schema: cfg.DatabaseSchema, storageProfile: profile}
-	if err := s.EnsureBrainSchema(ctx); err != nil {
+	if err := s.EnsureSchema(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}

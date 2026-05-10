@@ -33,7 +33,6 @@ type Reflection struct {
 	BankID       string            `json:"bank_id"`
 	CoreMemory   []CoreMemoryBlock `json:"core_memory"`
 	Observations []MemoryUnit      `json:"observations"`
-	Pages        []BrainPage       `json:"pages"`
 }
 
 func (s *Store) UpsertCoreMemoryBlock(ctx context.Context, block CoreMemoryBlock) (*CoreMemoryBlock, error) {
@@ -185,11 +184,7 @@ func (s *Store) ReflectAgentMemory(ctx context.Context, bankID string, limit int
 	if err != nil {
 		return nil, err
 	}
-	pages, err := s.ListBrainPages(ctx, bankID, limit)
-	if err != nil {
-		return nil, err
-	}
-	return &Reflection{BankID: bankID, CoreMemory: blocks, Observations: observations, Pages: pages}, nil
+	return &Reflection{BankID: bankID, CoreMemory: blocks, Observations: observations}, nil
 }
 
 func (s *Store) listMemoryUnitsByType(ctx context.Context, bankID string, factType string, limit int) ([]MemoryUnit, error) {

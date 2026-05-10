@@ -13,7 +13,6 @@ import (
 
 	"github.com/singularity-ng/singularity-memory/go/internal/config"
 	"github.com/singularity-ng/singularity-memory/go/internal/mcp"
-	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
 )
@@ -44,18 +43,6 @@ type Store interface {
 	// Document upsert
 	UpsertDocument(ctx context.Context, bankID string, documentID string, text string) error
 
-	// Agent-brain page storage
-	UpsertBrainPage(ctx context.Context, bankID string, input store.BrainPageInput) (*store.BrainPage, error)
-	GetBrainPage(ctx context.Context, bankID string, slug string) (*store.BrainPage, error)
-	ListBrainPages(ctx context.Context, bankID string, limit int) ([]store.BrainPage, error)
-	AddBrainLink(ctx context.Context, bankID string, sourceID string, link store.BrainLink) error
-	GetBrainLinks(ctx context.Context, bankID string, sourceID string, slug string, backlinks bool) ([]store.BrainLink, error)
-	AddBrainTimelineEntry(ctx context.Context, bankID string, sourceID string, entry store.BrainTimelineEntry) (*store.BrainTimelineEntry, error)
-	GetBrainTimeline(ctx context.Context, bankID string, sourceID string, slug string, limit int) ([]store.BrainTimelineEntry, error)
-	EnqueueBrainJob(ctx context.Context, bankID string, input store.BrainJobInput) (*store.BrainJob, error)
-	ListBrainJobs(ctx context.Context, bankID string, status string, limit int) ([]store.BrainJob, error)
-	ClaimBrainJob(ctx context.Context, bankID string, kinds []string) (*store.BrainJob, error)
-	CompleteBrainJob(ctx context.Context, bankID string, jobID string, status string, result map[string]any, jobErr *string) (*store.BrainJob, error)
 	UpsertCoreMemoryBlock(ctx context.Context, block store.CoreMemoryBlock) (*store.CoreMemoryBlock, error)
 	ListCoreMemoryBlocks(ctx context.Context, bankID string) ([]store.CoreMemoryBlock, error)
 	RunDeterministicConsolidation(ctx context.Context, bankID string, limit int) (*store.ConsolidationResult, error)
@@ -77,7 +64,6 @@ type Dependencies struct {
 	Logger       *log.Logger
 	EmbedClient  Embedder
 	RerankClient *rerank.Client
-	ModelCatalog *modelcatalog.Service
 	Version      string
 	OpenAPIJSON  []byte
 	MCPServer    *mcp.Server
@@ -91,6 +77,7 @@ func NewServer(deps Dependencies) http.Handler {
 
 	server := &server{deps: deps}
 
+	r.Get("/health", server.health)
 	r.Get("/healthz", server.healthz)
 	r.Get("/version", server.version)
 	r.Get("/openapi.json", server.openapi)
@@ -114,36 +101,6 @@ func NewServer(deps Dependencies) http.Handler {
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Post("/default/banks/{bank_id}/memories/recall", server.recall)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/pages", server.listBrainPages)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/pages", server.upsertBrainPage)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/links", server.addBrainLink)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/links", server.getBrainLinks)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}/links", server.getBrainLinks)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}/backlinks", server.getBrainBacklinks)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/timeline", server.addBrainTimeline)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/timeline", server.getBrainTimeline)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/pages/{slug:.+}/timeline", server.addBrainTimeline)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}/timeline", server.getBrainTimeline)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/jobs", server.enqueueBrainJob)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/jobs", server.listBrainJobs)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/jobs/claim", server.claimBrainJob)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Post("/default/banks/{bank_id}/brain/jobs/{job_id}/complete", server.completeBrainJob)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
-			Get("/default/banks/{bank_id}/brain/pages/{slug:.+}", server.getBrainPage)
-		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Get("/default/banks/{bank_id}/core-memory", server.listCoreMemory)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Put("/default/banks/{bank_id}/core-memory/{block_name}", server.upsertCoreMemory)
@@ -151,12 +108,6 @@ func NewServer(deps Dependencies) http.Handler {
 			Post("/default/banks/{bank_id}/consolidate", server.consolidateMemory)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Get("/default/banks/{bank_id}/reflect", server.reflectMemory)
-	})
-
-	r.Route("/v1/model-catalog", func(r chi.Router) {
-		r.Get("/", server.getModelCatalog)
-		r.Post("/sync", server.syncModelCatalog)
-		r.Get("/export/sf", server.exportSFModelCatalog)
 	})
 
 	// MCP JSON-RPC 2.0 endpoints
@@ -228,6 +179,23 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *server) health(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+
+	statusText := "unhealthy"
+	statusCode := http.StatusServiceUnavailable
+	if s.deps.Store != nil && s.deps.Store.Ping(ctx) == nil {
+		statusText = "healthy"
+		statusCode = http.StatusOK
+	}
+
+	writeJSON(w, statusCode, map[string]any{
+		"status":  statusText,
+		"service": "singularity-memory-go",
+	})
+}
+
 func (s *server) version(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"api_version": s.deps.Version,
@@ -237,8 +205,7 @@ func (s *server) version(w http.ResponseWriter, r *http.Request) {
 			"worker":          s.deps.Config.FeatureFlags["worker"],
 			"bank_config_api": s.deps.Config.FeatureFlags["bank_config_api"],
 			"file_upload_api": s.deps.Config.FeatureFlags["file_upload_api"],
-			"model_catalog":   s.deps.ModelCatalog != nil,
-		},
+			},
 	})
 }
 

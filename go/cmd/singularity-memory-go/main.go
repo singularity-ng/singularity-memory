@@ -16,7 +16,6 @@ import (
 	"github.com/singularity-ng/singularity-memory/go/internal/embed"
 	"github.com/singularity-ng/singularity-memory/go/internal/httpapi"
 	"github.com/singularity-ng/singularity-memory/go/internal/mcp"
-	"github.com/singularity-ng/singularity-memory/go/internal/modelcatalog"
 	"github.com/singularity-ng/singularity-memory/go/internal/rerank"
 	"github.com/singularity-ng/singularity-memory/go/internal/store"
 )
@@ -82,21 +81,6 @@ func run() error {
 		log.Warn("SINGULARITY_RERANK_OPENAI_BASE_URL is not set; rerank endpoints will be unavailable")
 	}
 
-	liveProviders := make([]modelcatalog.LiveProvider, 0, len(cfg.ModelDiscoveryEndpoints))
-	for _, endpoint := range cfg.ModelDiscoveryEndpoints {
-		liveProviders = append(liveProviders, modelcatalog.LiveProvider{
-			ID:         endpoint.ID,
-			Name:       endpoint.Name,
-			BaseURL:    endpoint.BaseURL,
-			SecretRef:  endpoint.SecretRef,
-			APIKey:     endpoint.APIKey,
-			KeySource:  endpoint.KeySource,
-			SecretHint: endpoint.SecretHint,
-		})
-	}
-	modelCatalog := modelcatalog.NewService(cfg.ModelCatalogPath, modelcatalog.Fetcher{LiveProviders: liveProviders})
-	log.Info("model catalog configured", "path", cfg.ModelCatalogPath, "live_providers", len(liveProviders), "secret_source", cfg.ModelDiscoverySecretSource)
-
 	var mcpServer *mcp.Server
 	if cfg.MCPEnabled {
 		mcpServer = mcp.NewServer()
@@ -109,7 +93,6 @@ func run() error {
 		Logger:       log.Default(),
 		EmbedClient:  embedClient,
 		RerankClient: rerankClient,
-		ModelCatalog: modelCatalog,
 		Version:      version,
 		MCPServer:    mcpServer,
 	})
@@ -120,7 +103,6 @@ func run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// Log enabled feature flags at startup
 	if len(cfg.FeatureFlags) > 0 {
 		enabled := make([]string, 0, len(cfg.FeatureFlags))
 		for name, on := range cfg.FeatureFlags {
@@ -130,8 +112,6 @@ func run() error {
 		}
 		if len(enabled) > 0 {
 			log.Info("feature flags enabled", "flags", enabled)
-		} else {
-			log.Info("feature flags: none enabled")
 		}
 	}
 
