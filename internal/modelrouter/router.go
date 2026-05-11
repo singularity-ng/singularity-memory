@@ -32,18 +32,29 @@ type Router struct {
 	configured   bool
 }
 
+// taskEnvPrefix maps each task to its env var prefix for per-task overrides.
+// Full route: OPS_MEMORY_WORKER_<PREFIX>_BASE_URL / _API_KEY / _MODEL
+// Model-only: OPS_MEMORY_WORKER_MODEL_<PREFIX> (legacy, still supported)
+var taskEnvPrefix = map[Task]string{
+	TaskSummarizeTurn:   "SUMMARIZE_TURN",
+	TaskConsolidateBank: "CONSOLIDATE_BANK",
+	TaskHindsight:       "HINDSIGHT",
+	TaskExtractEntities: "EXTRACT_ENTITIES",
+	TaskImportanceScore: "IMPORTANCE_SCORE",
+}
+
 // New builds a Router from env vars, reading at construction time.
 //
-// Base URL / API key / model resolution order:
+// Default route resolution order:
 //  1. OPS_MEMORY_WORKER_LLM_BASE_URL + OPS_MEMORY_WORKER_LLM_API_KEY + OPS_MEMORY_WORKER_MODEL
-//  2. cfg.EmbedGatewayURL + cfg.EmbedAPIKey + OPS_MEMORY_WORKER_MODEL (shared LLM gateway)
-//  3. First cfg.ModelDiscoveryEndpoints entry with a BaseURL; model from endpoint.Model else OPS_MEMORY_WORKER_MODEL
-//  4. Nothing → configured=false → Route() returns false, LLM jobs are skipped
+//  2. First cfg.ModelDiscoveryEndpoints entry with a BaseURL
+//  3. Nothing → configured=false → Route() returns false, LLM jobs are skipped
 //
-// Per-task model overrides: OPS_MEMORY_WORKER_MODEL_<TASK_UPPER>
+// Per-task full overrides: OPS_MEMORY_WORKER_<TASK>_BASE_URL / _API_KEY / _MODEL
+// Per-task model-only:     OPS_MEMORY_WORKER_MODEL_<TASK> (legacy)
 func New(cfg config.Config) *Router {
-	workerBaseURL := firstNonEmpty(os.Getenv("OPS_MEMORY_WORKER_LLM_BASE_URL"))
-	workerAPIKey := firstNonEmpty(os.Getenv("OPS_MEMORY_WORKER_LLM_API_KEY"))
+	workerBaseURL := os.Getenv("OPS_MEMORY_WORKER_LLM_BASE_URL")
+	workerAPIKey := os.Getenv("OPS_MEMORY_WORKER_LLM_API_KEY")
 	workerModel := firstNonEmpty(os.Getenv("OPS_MEMORY_WORKER_MODEL"), cfg.WorkerLLMModel)
 
 	var baseURL, apiKey, defaultModel string
@@ -52,10 +63,6 @@ func New(cfg config.Config) *Router {
 	case workerBaseURL != "":
 		baseURL = workerBaseURL
 		apiKey = workerAPIKey
-		defaultModel = workerModel
-	case cfg.EmbedGatewayURL != "":
-		baseURL = cfg.EmbedGatewayURL
-		apiKey = firstNonEmpty(cfg.EmbedAPIKey, os.Getenv("LLM_MUX_API_KEY"))
 		defaultModel = workerModel
 	default:
 		for _, ep := range cfg.ModelDiscoveryEndpoints {
@@ -70,37 +77,54 @@ func New(cfg config.Config) *Router {
 
 	defaultRoute := Route{BaseURL: baseURL, Model: defaultModel, APIKey: apiKey}
 
-	taskEnvs := map[Task]string{
-		TaskSummarizeTurn:   "OPS_MEMORY_WORKER_MODEL_SUMMARIZE_TURN",
-		TaskConsolidateBank: "OPS_MEMORY_WORKER_MODEL_CONSOLIDATE_BANK",
-		TaskHindsight:       "OPS_MEMORY_WORKER_MODEL_HINDSIGHT",
-		TaskExtractEntities: "OPS_MEMORY_WORKER_MODEL_EXTRACT_ENTITIES",
-		TaskImportanceScore: "OPS_MEMORY_WORKER_MODEL_IMPORTANCE_SCORE",
-	}
-	taskRoutes := make(map[Task]Route, len(taskEnvs))
-	for task, envKey := range taskEnvs {
-		if model := os.Getenv(envKey); model != "" {
-			taskRoutes[task] = Route{BaseURL: baseURL, Model: model, APIKey: apiKey}
+	taskRoutes := make(map[Task]Route, len(taskEnvPrefix))
+	for task, prefix := range taskEnvPrefix {
+		taskBaseURL := os.Getenv("OPS_MEMORY_WORKER_" + prefix + "_BASE_URL")
+		taskAPIKey := os.Getenv("OPS_MEMORY_WORKER_" + prefix + "_API_KEY")
+		taskModel := firstNonEmpty(
+			os.Getenv("OPS_MEMORY_WORKER_"+prefix+"_MODEL"),
+			os.Getenv("OPS_MEMORY_WORKER_MODEL_"+prefix), // legacy
+		)
+		switch {
+		case taskBaseURL != "":
+			// Full provider override for this task.
+			taskRoutes[task] = Route{
+				BaseURL: taskBaseURL,
+				APIKey:  firstNonEmpty(taskAPIKey, apiKey),
+				Model:   firstNonEmpty(taskModel, defaultModel),
+			}
+		case taskModel != "":
+			// Model-only override — inherit base URL + key from default.
+			taskRoutes[task] = Route{BaseURL: baseURL, Model: taskModel, APIKey: apiKey}
 		}
 	}
 
 	return &Router{
 		defaultRoute: defaultRoute,
 		taskRoutes:   taskRoutes,
-		configured:   baseURL != "",
+		configured:   baseURL != "" || hasAnyTaskRoute(taskRoutes),
 	}
 }
 
 // Route returns the best Route for the given task.
-// Returns ({}, false) if no LLM base URL is configured.
+// Returns ({}, false) if no LLM is configured for this task.
 func (r *Router) Route(_ context.Context, task Task) (Route, bool) {
-	if !r.configured {
-		return Route{}, false
-	}
-	if route, ok := r.taskRoutes[task]; ok {
+	if route, ok := r.taskRoutes[task]; ok && route.BaseURL != "" {
 		return route, true
 	}
-	return r.defaultRoute, true
+	if r.defaultRoute.BaseURL != "" {
+		return r.defaultRoute, true
+	}
+	return Route{}, false
+}
+
+func hasAnyTaskRoute(routes map[Task]Route) bool {
+	for _, r := range routes {
+		if r.BaseURL != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func firstNonEmpty(values ...string) string {
