@@ -68,7 +68,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.EmbedBatchSize != 32 {
 		t.Fatalf("EmbedBatchSize = %d", cfg.EmbedBatchSize)
 	}
-	if cfg.RerankModel != "cohere-rerank-v3" {
+	if cfg.RerankModel != "qwen/qwen3-reranker-0.6b" {
 		t.Fatalf("RerankModel = %q", cfg.RerankModel)
 	}
 	if cfg.RerankTopK != 10 {
