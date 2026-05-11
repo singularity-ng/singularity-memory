@@ -16,8 +16,10 @@ import (
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/embed"
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/httpapi"
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/mcp"
+	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/modelrouter"
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/rerank"
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/store"
+	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/worker"
 )
 
 var version = "dev"
@@ -85,6 +87,14 @@ func run() error {
 	if cfg.MCPEnabled {
 		mcpServer = mcp.NewServer()
 		log.Info("mcp server enabled")
+	}
+
+	router := modelrouter.New(cfg)
+
+	if cfg.WorkerEnabled && db != nil {
+		w := worker.New(db, router, log.Default(), cfg.WorkerConcurrency, cfg.WorkerPollInterval)
+		go w.Start(ctx)
+		log.Info("worker started", "concurrency", cfg.WorkerConcurrency, "poll_interval", cfg.WorkerPollInterval)
 	}
 
 	handler := httpapi.NewServer(httpapi.Dependencies{

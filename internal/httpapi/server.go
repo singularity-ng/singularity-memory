@@ -163,6 +163,10 @@ func NewServer(deps Dependencies) http.Handler {
 			Post("/default/banks/{bank_id}/consolidate", server.consolidateMemory)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Get("/default/banks/{bank_id}/reflect", server.reflectMemory)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/sleep", server.enqueueSleep)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/hindsight", server.enqueueHindsight)
 	})
 
 	// MCP JSON-RPC 2.0 endpoints

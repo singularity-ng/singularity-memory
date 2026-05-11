@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/storageprofile"
 	"gopkg.in/yaml.v3"
@@ -34,12 +35,14 @@ const (
 	defaultRetainBatchTokens       = 8000
 	defaultRRFK                    = 60
 	defaultRRFWeights              = "1.0,1.0,0.5,0.3"
+	defaultWorkerModel             = "qwen/qwen3-4b-instruct"
 )
 
 type ModelDiscoveryEndpoint struct {
 	ID         string
 	Name       string
 	BaseURL    string
+	Model      string
 	SecretRef  string
 	APIKey     string
 	KeySource  string
@@ -55,6 +58,7 @@ type modelDiscoveryDefinition struct {
 	ID        string `json:"id"`
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"base_url"`
+	Model     string `json:"model,omitempty"`
 	SecretRef string `json:"secret_ref,omitempty"`
 	Disabled  bool   `json:"disabled,omitempty"`
 }
@@ -99,6 +103,12 @@ type Config struct {
 
 	// Feature flags parsed from OPS_MEMORY_FEATURE_* env vars.
 	FeatureFlags map[string]bool
+
+	// Worker configuration
+	WorkerEnabled      bool
+	WorkerLLMModel     string
+	WorkerPollInterval time.Duration
+	WorkerConcurrency  int
 
 	// Memory / retain configuration
 	RetainBatchTokens int
@@ -165,6 +175,11 @@ func FromEnv() Config {
 		ModelDiscoverySecretError:  secretHint,
 		ModelDiscoveryStoreError:   storeHint,
 		FeatureFlags:               parseFeatureFlags(),
+
+		WorkerEnabled:      getenvBoolAny(false, "OPS_MEMORY_WORKER_ENABLED"),
+		WorkerLLMModel:     getenvAny(defaultWorkerModel, "OPS_MEMORY_WORKER_MODEL"),
+		WorkerPollInterval: getenvDurationAny(30*time.Second, "OPS_MEMORY_WORKER_POLL_INTERVAL"),
+		WorkerConcurrency:  getenvIntAny(2, "OPS_MEMORY_WORKER_CONCURRENCY"),
 
 		RetainBatchTokens: getenvIntAny(defaultRetainBatchTokens, "OPS_MEMORY_RETAIN_BATCH_TOKENS"),
 		RRFK:              getenvIntAny(defaultRRFK, "OPS_MEMORY_RRF_K"),
@@ -267,6 +282,21 @@ func getenvIntAny(fallback int, keys ...string) int {
 			return fallback
 		}
 		return value
+	}
+	return fallback
+}
+
+func getenvDurationAny(fallback time.Duration, keys ...string) time.Duration {
+	for _, key := range keys {
+		raw := os.Getenv(key)
+		if raw == "" {
+			continue
+		}
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return fallback
+		}
+		return d
 	}
 	return fallback
 }
@@ -399,6 +429,7 @@ func materializeModelDiscoveryEndpoints(definitions []modelDiscoveryDefinition, 
 			ID:         definition.ID,
 			Name:       definition.Name,
 			BaseURL:    definition.BaseURL,
+			Model:      definition.Model,
 			SecretRef:  definition.SecretRef,
 			APIKey:     apiKey,
 			KeySource:  keySource,
@@ -593,6 +624,7 @@ func providerDefinitionFromMap(idHint string, value map[string]any) (modelDiscov
 		ID:        stringField(value, "id"),
 		Name:      stringField(value, "name"),
 		BaseURL:   firstStringField(value, "base_url", "baseURL", "url"),
+		Model:     stringField(value, "model"),
 		SecretRef: firstStringField(value, "secret_ref", "secretRef", "api_key_ref", "apiKeyRef"),
 		Disabled:  boolField(value, "disabled"),
 	}
