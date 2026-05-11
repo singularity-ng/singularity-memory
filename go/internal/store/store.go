@@ -29,13 +29,14 @@ func Open(ctx context.Context, cfg config.Config) (*Store, error) {
 	}
 	// Set search_path so index names (which cannot be schema-qualified in
 	// CREATE INDEX syntax) resolve to the correct schema automatically.
-	// Include "public" for operator classes (vector_l2_ops etc.) and
-	// "tokenizer_catalog" for the tokenize() function used by BM25 indexing.
+	// Include "public" for operator classes (vector_l2_ops etc.),
+	// "tokenizer_catalog" for the tokenize() function used by BM25 indexing,
+	// and "bm25_catalog" for bm25vector/bm25query types used in BM25 queries.
 	sep := "?"
 	if strings.Contains(cfg.DatabaseURL, "?") {
 		sep = "&"
 	}
-	dsn := cfg.DatabaseURL + sep + "search_path=" + cfg.DatabaseSchema + ",public,tokenizer_catalog"
+	dsn := cfg.DatabaseURL + sep + "search_path=" + cfg.DatabaseSchema + ",public,bm25_catalog,tokenizer_catalog"
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, err

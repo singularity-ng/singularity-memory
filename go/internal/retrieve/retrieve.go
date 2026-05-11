@@ -201,7 +201,7 @@ func BM25Retrieval(
 	tagsClause, tagsParam, _ := BuildTagsClause(tags, 4, "", tagsMatch)
 
 	bm25ScoreExpr := fmt.Sprintf(
-		"search_vector <&> to_bm25query('%s'::regclass, tokenize($3, 'llmlingua2')::bm25vector)",
+		"search_vector <&> to_bm25query('%s'::regclass, tokenize($3, 'llmlingua2')::bm25_catalog.bm25vector)",
 		schema("idx_memory_units_text_search"),
 	)
 	bm25OrderBy := bm25ScoreExpr + " ASC"
@@ -295,7 +295,7 @@ func CombinedSemanticBM25(
 	tagsClause, tagsParam, _ := BuildTagsClause(tags, 5, "", tagsMatch)
 
 	bm25ScoreExpr := fmt.Sprintf(
-		"search_vector <&> to_bm25query('%s'::regclass, tokenize($4, 'llmlingua2')::bm25vector)",
+		"search_vector <&> to_bm25query('%s'::regclass, tokenize($4, 'llmlingua2')::bm25_catalog.bm25vector)",
 		schema("idx_memory_units_text_search"),
 	)
 	bm25OrderBy := bm25ScoreExpr + " ASC"
