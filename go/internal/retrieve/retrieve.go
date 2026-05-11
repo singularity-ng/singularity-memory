@@ -209,7 +209,7 @@ func BM25Retrieval(
 	var arms []string
 	for _, ft := range factTypes {
 		arm := fmt.Sprintf(
-			"(SELECT %s, NULL::float AS similarity, %s AS bm25_score FROM %s WHERE bank_id = $2 AND fact_type = '%s' %s ORDER BY %s LIMIT $3)",
+			"(SELECT %s, NULL::float AS similarity, %s AS bm25_score FROM %s WHERE bank_id = $1 AND fact_type = '%s' %s ORDER BY %s LIMIT $2)",
 			cols, bm25ScoreExpr, schema("memory_units"), ft, tagsClause, bm25OrderBy,
 		)
 		arms = append(arms, arm)
