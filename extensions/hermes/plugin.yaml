@@ -1,6 +1,0 @@
-name: ops_memory
-version: 1.0.0
-description: "Operations Memory — Postgres-backed memory with BM25 + vector + RRF fusion retrieval. Per-agent banks for incident context, runbooks, and failure fingerprints."
-hooks:
-  - on_session_end
-  - on_memory_write
