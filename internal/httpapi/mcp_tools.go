@@ -102,6 +102,28 @@ func (b *mcpToolBackend) GetBank(ctx context.Context, bankID string, args map[st
 	return parseHandlerResponse(rec)
 }
 
+// Postmortem triggers post-incident analysis for a resolved alert fingerprint.
+func (b *mcpToolBackend) Postmortem(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	reqBody := postmortemRequest{
+		Fingerprint: getString(args, "fingerprint"),
+	}
+	if slugs, ok := args["runbook_slugs"].([]any); ok {
+		reqBody.RunbookSlugs = toStringSlice(slugs)
+	}
+	if reqBody.Fingerprint == "" {
+		return nil, fmt.Errorf("fingerprint is required")
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/"+bankID+"/postmortem", bytes.NewReader(body))
+	req = req.WithContext(ctx)
+	req = withBankID(req, bankID)
+	rec := httptest.NewRecorder()
+	b.s.enqueuePostmortem(rec, req)
+
+	return parseHandlerResponse(rec)
+}
+
 // parseHandlerResponse reads an httptest.ResponseRecorder and returns the parsed JSON body or an error.
 func parseHandlerResponse(rec *httptest.ResponseRecorder) (any, error) {
 	if rec.Code >= 400 {

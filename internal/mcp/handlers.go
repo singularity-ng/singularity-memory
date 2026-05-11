@@ -123,6 +123,25 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 				},
 			},
 		},
+		{
+			Name:        "memory_postmortem",
+			Description: "Trigger a post-incident analysis for a resolved alert. Extracts durable lessons, runbook gaps, and effectiveness scores from incident memories and stores them for future recall. Call this after an incident is resolved, providing the alert fingerprint and any runbook slugs that were used.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"fingerprint": map[string]any{
+						"type":        "string",
+						"description": "The alert fingerprint (e.g., alertname+instance key) that identifies the incident",
+					},
+					"runbook_slugs": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Slugs of runbooks used during the incident (e.g., ['disk-full', 'pod-crashloop']). Used to score runbook effectiveness.",
+					},
+				},
+				"required": []string{"fingerprint"},
+			},
+		},
 	}
 
 	return &JSONRPCResponse{
@@ -179,6 +198,11 @@ func (s *Server) handleToolsCall(r *http.Request, req *JSONRPCRequest, sess *Ses
 			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
 		}
 		result, err = s.ToolBackend.GetBank(ctx, bankID, params)
+	case "memory_postmortem":
+		if s.ToolBackend == nil {
+			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
+		}
+		result, err = s.ToolBackend.Postmortem(ctx, bankID, params)
 	default:
 		return errorResponse(req.ID, ErrMethodNotFound, "tool not found: "+toolName)
 	}

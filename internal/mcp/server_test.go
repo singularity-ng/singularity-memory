@@ -117,6 +117,9 @@ func (m *mockToolBackend) ListBanks(ctx context.Context, bankID string, args map
 func (m *mockToolBackend) GetBank(ctx context.Context, bankID string, args map[string]any) (any, error) {
 	return map[string]any{"bank_id": bankID}, nil
 }
+func (m *mockToolBackend) Postmortem(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	return map[string]any{"status": "queued", "bank_id": bankID}, nil
+}
 
 func TestServerToolsCallRetain(t *testing.T) {
 	srv := NewServer()

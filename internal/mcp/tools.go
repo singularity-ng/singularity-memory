@@ -8,4 +8,5 @@ type ToolBackend interface {
 	Recall(ctx context.Context, bankID string, args map[string]any) (any, error)
 	ListBanks(ctx context.Context, bankID string, args map[string]any) (any, error)
 	GetBank(ctx context.Context, bankID string, args map[string]any) (any, error)
+	Postmortem(ctx context.Context, bankID string, args map[string]any) (any, error)
 }
