@@ -55,33 +55,115 @@ type tokenUsage struct {
 // ---------------------------------------------------------------------------
 
 type processedMemoryUnit struct {
-	Text          string
-	Embedding     []float32
-	Context       *string
-	FactType      string
-	Tags          []string
-	Metadata      map[string]any
-	OccurredStart *time.Time
-	OccurredEnd   *time.Time
-	MentionedAt   *time.Time
-	TextSignals   *string
-	DocumentID    string
-	ChunkID       string
-	Entities      []string
+	Text            string
+	Embedding       []float32
+	Context         *string
+	FactType        string
+	Tags            []string
+	Metadata        map[string]any
+	OccurredStart   *time.Time
+	OccurredEnd     *time.Time
+	MentionedAt     *time.Time
+	TextSignals     *string
+	DocumentID      string
+	ChunkID         string
+	Entities        []string
+	ImportanceScore float64
 }
 
 // ---------------------------------------------------------------------------
-// Regex entity extraction patterns
+// Ops-aware entity extraction patterns
 // ---------------------------------------------------------------------------
 
 var (
 	entityPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b`),                                                                                    // Proper nouns
-		regexp.MustCompile(`\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}(?:,\s+\d{4})?\b`), // Dates
-		regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`),                                                                                                 // ISO dates
-		regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b`),                                                                   // Emails
+		// Kubernetes pod/deployment names: lowercase-alphanumeric with dashes, ≥2 segments
+		regexp.MustCompile(`\b[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}\b`),
+		// Alert names: CamelCase identifiers starting with uppercase (e.g. NodeNotReady, HighMemory)
+		regexp.MustCompile(`\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+){1,}\b`),
+		// Kubernetes namespaces / service names: lowercase-with-single-dashes
+		regexp.MustCompile(`\b[a-z][a-z0-9]*(?:-[a-z0-9]+)\b`),
+		// Node names: hostname patterns (letters/digits, may include region codes)
+		regexp.MustCompile(`\b(?:prod|staging|dev|cc|node)-[a-z0-9]+-[a-z0-9]+\b`),
+		// HTTP status codes (4xx, 5xx)
+		regexp.MustCompile(`\b[45]\d{2}\b`),
+		// Error codes / exit codes: uppercase with underscores
+		regexp.MustCompile(`\b[A-Z][A-Z0-9_]{2,}\b`),
+		// Duration patterns
+		regexp.MustCompile(`\b\d+(?:\.\d+)?(?:ms|s|m|h|d)\b`),
+		// IP addresses
+		regexp.MustCompile(`\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b`),
+		// ISO dates
+		regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`),
 	}
 )
+
+// ---------------------------------------------------------------------------
+// Importance heuristic scoring
+// ---------------------------------------------------------------------------
+
+// highImportanceTerms boost confidence_score toward 1.0.
+var highImportanceTerms = []string{
+	"root cause", "root_cause",
+	"resolved", "resolution", "fix applied",
+	"runbook", "postmortem",
+	"critical", "outage", "incident",
+	"data loss", "corruption",
+	"escalat",
+	"pagerduty", "oncall", "on-call",
+}
+
+// lowImportanceTerms push confidence_score toward 0.2.
+var lowImportanceTerms = []string{
+	"routine", "scheduled", "heartbeat",
+	"info:", "debug:", "[info]", "[debug]",
+	"health check", "healthcheck",
+	"no action required",
+	"all systems operational",
+}
+
+// scoreImportance returns a 0.0-1.0 importance score based on heuristics.
+// High-signal ops events score high; routine noise scores low.
+func scoreImportance(text string, metadata map[string]any) float64 {
+	lower := strings.ToLower(text)
+	score := 0.5 // default neutral
+
+	for _, term := range highImportanceTerms {
+		if strings.Contains(lower, term) {
+			score += 0.15
+		}
+	}
+	for _, term := range lowImportanceTerms {
+		if strings.Contains(lower, term) {
+			score -= 0.15
+		}
+	}
+
+	// Boost if metadata carries an alert fingerprint (tied to a real alert)
+	if metadata != nil {
+		if _, ok := metadata["alert_fingerprint"]; ok {
+			score += 0.1
+		}
+		if sev, ok := metadata["severity"].(string); ok {
+			switch sev {
+			case "critical":
+				score += 0.2
+			case "warning":
+				score += 0.1
+			case "info", "debug":
+				score -= 0.1
+			}
+		}
+	}
+
+	if score > 1.0 {
+		return 1.0
+	}
+	if score < 0.1 {
+		return 0.1
+	}
+	return score
+}
 
 // ---------------------------------------------------------------------------
 // Retain handler
@@ -207,16 +289,17 @@ func (s *server) retain(w http.ResponseWriter, r *http.Request) {
 			}
 
 			unit := processedMemoryUnit{
-				Text:        item.Content,
-				Embedding:   embeddings[i],
-				Context:     ctxStr,
-				FactType:    factType,
-				Tags:        item.Tags,
-				Metadata:    item.Metadata,
-				DocumentID:  docID,
-				ChunkID:     chunkID,
-				TextSignals: textSignals,
-				Entities:    entities,
+				Text:            item.Content,
+				Embedding:       embeddings[i],
+				Context:         ctxStr,
+				FactType:        factType,
+				Tags:            item.Tags,
+				Metadata:        item.Metadata,
+				DocumentID:      docID,
+				ChunkID:         chunkID,
+				TextSignals:     textSignals,
+				Entities:        entities,
+				ImportanceScore: scoreImportance(item.Content, item.Metadata),
 			}
 
 			if item.Timestamp != nil {
@@ -315,6 +398,18 @@ func uniqueWarnings(warnings []string) []string {
 // ---------------------------------------------------------------------------
 
 func (s *server) storeUnit(ctx context.Context, bankID string, unit *processedMemoryUnit) error {
+	// Fingerprint-based dedup: if the incoming memory carries an alert_fingerprint,
+	// check for a non-consolidated memory with the same fingerprint written in the
+	// last hour.  If found, update its text and bump updated_at instead of inserting.
+	if fp := fingerprintFromMetadata(unit.Metadata); fp != "" {
+		existingID, err := s.deps.Store.FindNonConsolidatedByFingerprint(ctx, bankID, fp, time.Hour)
+		if err == nil && existingID != "" {
+			if uerr := s.deps.Store.UpdateMemoryText(ctx, bankID, existingID, unit.Text); uerr == nil {
+				return nil // deduplicated — no new row
+			}
+		}
+	}
+
 	// Insert document row if not exists (upsert)
 	if err := s.upsertDocument(ctx, bankID, unit.DocumentID, unit.Text); err != nil {
 		return fmt.Errorf("upsert document: %w", err)
@@ -333,16 +428,18 @@ func (s *server) storeUnit(ctx context.Context, bankID string, unit *processedMe
 	}
 
 	// Insert memory unit
+	score := unit.ImportanceScore
 	mu := &store.MemoryUnit{
-		DocumentID:  &unit.DocumentID,
-		ChunkID:     &unit.ChunkID,
-		Text:        unit.Text,
-		Embedding:   unit.Embedding,
-		Context:     unit.Context,
-		FactType:    unit.FactType,
-		Tags:        unit.Tags,
-		Metadata:    unit.Metadata,
-		TextSignals: unit.TextSignals,
+		DocumentID:      &unit.DocumentID,
+		ChunkID:         &unit.ChunkID,
+		Text:            unit.Text,
+		Embedding:       unit.Embedding,
+		Context:         unit.Context,
+		FactType:        unit.FactType,
+		Tags:            unit.Tags,
+		Metadata:        unit.Metadata,
+		TextSignals:     unit.TextSignals,
+		ConfidenceScore: &score,
 	}
 	if unit.OccurredStart != nil {
 		mu.OccurredStart = unit.OccurredStart
@@ -487,4 +584,19 @@ func splitSentences(text string) []string {
 		}
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Fingerprint helpers
+// ---------------------------------------------------------------------------
+
+// fingerprintFromMetadata extracts alert_fingerprint from metadata if present.
+func fingerprintFromMetadata(metadata map[string]any) string {
+if metadata == nil {
+return ""
+}
+if fp, ok := metadata["alert_fingerprint"].(string); ok {
+return fp
+}
+return ""
 }

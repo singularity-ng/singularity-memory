@@ -92,9 +92,9 @@ func run() error {
 	router := modelrouter.New(cfg)
 
 	if cfg.WorkerEnabled && db != nil {
-		w := worker.New(db, router, log.Default(), cfg.WorkerConcurrency, cfg.WorkerPollInterval)
+		w := worker.New(db, router, log.Default(), cfg.WorkerConcurrency, cfg.WorkerPollInterval, cfg.WorkerSharedBankID)
 		go w.Start(ctx)
-		log.Info("worker started", "concurrency", cfg.WorkerConcurrency, "poll_interval", cfg.WorkerPollInterval)
+		log.Info("worker started", "concurrency", cfg.WorkerConcurrency, "poll_interval", cfg.WorkerPollInterval, "shared_bank", cfg.WorkerSharedBankID)
 	}
 
 	handler := httpapi.NewServer(httpapi.Dependencies{

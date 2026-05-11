@@ -589,27 +589,33 @@ func TestSplitIntoSubBatches(t *testing.T) {
 }
 
 func TestExtractEntities(t *testing.T) {
-	text := "Alice and Bob visited Paris on January 15, 2024. Contact alice@example.com."
+	text := "Pod nginx-proxy-abc123 in namespace cert-manager restarted at 2024-01-15. HTTP 503 on 192.168.1.1 after 30s timeout."
 	entities := extractEntities(text)
 	if len(entities) == 0 {
 		t.Fatal("expected some entities")
 	}
-	// Check that we got at least Alice, Bob, Paris, a date, and an email
-	hasAlice := false
-	hasEmail := false
+	hasPod := false
+	hasNamespace := false
+	hasIP := false
 	for _, e := range entities {
-		if e == "Alice" {
-			hasAlice = true
+		if e == "nginx-proxy-abc123" {
+			hasPod = true
 		}
-		if e == "alice@example.com" {
-			hasEmail = true
+		if e == "cert-manager" {
+			hasNamespace = true
+		}
+		if e == "192.168.1.1" {
+			hasIP = true
 		}
 	}
-	if !hasAlice {
-		t.Fatalf("expected Alice in entities, got %v", entities)
+	if !hasPod {
+		t.Fatalf("expected pod name in entities, got %v", entities)
 	}
-	if !hasEmail {
-		t.Fatalf("expected email in entities, got %v", entities)
+	if !hasNamespace {
+		t.Fatalf("expected namespace in entities, got %v", entities)
+	}
+	if !hasIP {
+		t.Fatalf("expected IP in entities, got %v", entities)
 	}
 }
 

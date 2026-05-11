@@ -29,6 +29,8 @@ type Store interface {
 	GetMemoryUnit(ctx context.Context, bankID string, unitID string) (*store.MemoryUnit, error)
 	DeleteMemoryUnit(ctx context.Context, bankID string, unitID string) error
 	ListMemoryUnits(ctx context.Context, bankID string, limit int, offset int) ([]store.MemoryUnit, error)
+	FindNonConsolidatedByFingerprint(ctx context.Context, bankID string, fp string, maxAge time.Duration) (string, error)
+	UpdateMemoryText(ctx context.Context, bankID string, unitID string, text string) error
 
 	// Memory links
 	InsertMemoryLink(ctx context.Context, link *store.MemoryLink) error

@@ -31,10 +31,11 @@ type Worker struct {
 	logger       *log.Logger
 	concurrency  int
 	pollInterval time.Duration
+	sharedBankID string // propagate high-confidence observations here
 }
 
 // New creates a Worker.
-func New(store Store, router *modelrouter.Router, logger *log.Logger, concurrency int, pollInterval time.Duration) *Worker {
+func New(store Store, router *modelrouter.Router, logger *log.Logger, concurrency int, pollInterval time.Duration, sharedBankID string) *Worker {
 	if concurrency <= 0 {
 		concurrency = 2
 	}
@@ -47,6 +48,7 @@ func New(store Store, router *modelrouter.Router, logger *log.Logger, concurrenc
 		logger:       logger,
 		concurrency:  concurrency,
 		pollInterval: pollInterval,
+		sharedBankID: sharedBankID,
 	}
 }
 
@@ -116,7 +118,7 @@ func (w *Worker) dispatch(ctx context.Context, bankID string, job *store.BrainJo
 			w.logger.Info("worker: skipping sleep job — no LLM configured", "bank_id", bankID, "job_id", job.ID)
 			return
 		}
-		handlerErr = handleSleep(ctx, bankID, job, w.store, route, w.logger)
+		handlerErr = handleSleep(ctx, bankID, job, w.store, route, w.logger, w.sharedBankID)
 	case "hindsight":
 		route, ok := w.router.Route(ctx, modelrouter.TaskHindsight)
 		if !ok {

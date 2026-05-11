@@ -15,7 +15,7 @@ import (
 )
 
 // handleSleep runs the Letta-style reflection loop for a bank.
-func handleSleep(ctx context.Context, bankID string, job *store.BrainJob, s Store, route modelrouter.Route, logger *log.Logger) error {
+func handleSleep(ctx context.Context, bankID string, job *store.BrainJob, s Store, route modelrouter.Route, logger *log.Logger, sharedBankID string) error {
 	reflection, err := s.ReflectAgentMemory(ctx, bankID, 200)
 	if err != nil {
 		return fmt.Errorf("reflect: %w", err)
@@ -118,6 +118,40 @@ Rules:
 		logger.Warn("sleep: deterministic consolidation failed", "bank_id", bankID, "error", err)
 	}
 
+	// Cross-agent propagation: write high-confidence observations to the shared bank
+	// so all agents benefit from patterns discovered in any agent's bank.
+	if sharedBankID != "" && sharedBankID != bankID {
+		for _, obs := range parsed.Observations {
+			obs = strings.TrimSpace(obs)
+			if obs == "" {
+				continue
+			}
+			// Only propagate clearly high-signal observations
+			// (heuristic: observations mentioning root causes, patterns, or runbook gaps)
+			lc := strings.ToLower(obs)
+			isHighSignal := strings.Contains(lc, "root cause") ||
+				strings.Contains(lc, "pattern") ||
+				strings.Contains(lc, "runbook") ||
+				strings.Contains(lc, "next time") ||
+				strings.Contains(lc, "always check") ||
+				strings.Contains(lc, "typically") ||
+				strings.Contains(lc, "outage")
+			if !isHighSignal {
+				continue
+			}
+			if _, err := s.InsertMemoryUnit(ctx, sharedBankID, &store.MemoryUnit{
+				BankID:    sharedBankID,
+				Text:      fmt.Sprintf("[from %s] %s", bankID, obs),
+				FactType:  "experience",
+				EventDate: now,
+				Tags:      []string{"cross-agent", "sleep-worker", "source:" + bankID},
+			}); err != nil {
+				logger.Warn("sleep: cross-agent propagation failed", "shared_bank", sharedBankID, "source_bank", bankID, "error", err)
+			}
+		}
+		logger.Info("sleep: cross-agent propagation done", "shared_bank", sharedBankID, "source_bank", bankID)
+	}
+
 	return nil
 }
 
@@ -131,7 +165,7 @@ func handleHindsight(ctx context.Context, bankID string, job *store.BrainJob, s 
 	fpTag := "fingerprint:" + fp
 
 	rows, err := s.Query(ctx,
-		`SELECT content FROM memory_units WHERE bank_id = $1 AND $2 = ANY(tags) ORDER BY created_at DESC LIMIT 50`,
+		`SELECT text FROM memory_units WHERE bank_id = $1 AND $2 = ANY(tags) ORDER BY created_at DESC LIMIT 50`,
 		bankID, fpTag,
 	)
 	if err != nil {

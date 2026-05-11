@@ -109,6 +109,7 @@ type Config struct {
 	WorkerLLMModel     string
 	WorkerPollInterval time.Duration
 	WorkerConcurrency  int
+	WorkerSharedBankID string // bank to propagate high-confidence insights to
 
 	// Memory / retain configuration
 	RetainBatchTokens int
@@ -180,6 +181,7 @@ func FromEnv() Config {
 		WorkerLLMModel:     getenvAny(defaultWorkerModel, "OPS_MEMORY_WORKER_MODEL"),
 		WorkerPollInterval: getenvDurationAny(30*time.Second, "OPS_MEMORY_WORKER_POLL_INTERVAL"),
 		WorkerConcurrency:  getenvIntAny(2, "OPS_MEMORY_WORKER_CONCURRENCY"),
+		WorkerSharedBankID: getenvAny("shared", "OPS_MEMORY_SHARED_BANK_ID", "SINGULARITY_SHARED_BANK_ID"),
 
 		RetainBatchTokens: getenvIntAny(defaultRetainBatchTokens, "OPS_MEMORY_RETAIN_BATCH_TOKENS"),
 		RRFK:              getenvIntAny(defaultRRFK, "OPS_MEMORY_RRF_K"),

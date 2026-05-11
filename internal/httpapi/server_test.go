@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -223,6 +224,14 @@ func (f fakeStore) Query(_ context.Context, _ string, _ ...any) (pgx.Rows, error
 }
 
 func (f fakeStore) QueryRow(_ context.Context, _ string, _ ...any) pgx.Row {
+	return nil
+}
+
+func (f fakeStore) FindNonConsolidatedByFingerprint(_ context.Context, _ string, _ string, _ time.Duration) (string, error) {
+	return "", nil
+}
+
+func (f fakeStore) UpdateMemoryText(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
 

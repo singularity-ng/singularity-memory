@@ -448,3 +448,40 @@ func vectorParam(values []float32) any {
 	}
 	return pgvector.NewVector(values)
 }
+
+// FindNonConsolidatedByFingerprint returns the ID of a non-consolidated memory unit
+// in bankID whose metadata->alert_fingerprint matches fp and was created within maxAge.
+// Returns ("", nil) if no match found.
+func (s *Store) FindNonConsolidatedByFingerprint(ctx context.Context, bankID string, fp string, maxAge time.Duration) (string, error) {
+query := `
+SELECT id::text
+FROM ` + s.table("memory_units") + `
+WHERE bank_id = $1
+  AND consolidated_at IS NULL
+  AND metadata->>'alert_fingerprint' = $2
+  AND created_at >= NOW() - $3::interval
+ORDER BY created_at DESC
+LIMIT 1
+`
+var id string
+err := s.pool.QueryRow(ctx, query, bankID, fp, maxAge.String()).Scan(&id)
+if err != nil {
+// pgx.ErrNoRows is not an error here — just no duplicate found
+return "", nil
+}
+return id, nil
+}
+
+// UpdateMemoryText updates the text of an existing memory unit and refreshes updated_at.
+func (s *Store) UpdateMemoryText(ctx context.Context, bankID string, unitID string, text string) error {
+query := `
+UPDATE ` + s.table("memory_units") + `
+SET text = $3, updated_at = NOW()
+WHERE bank_id = $1 AND id::text = $2
+`
+_, err := s.pool.Exec(ctx, query, bankID, unitID, text)
+if err != nil {
+return fmt.Errorf("update memory text: %w", err)
+}
+return nil
+}
