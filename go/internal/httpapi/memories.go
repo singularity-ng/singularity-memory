@@ -40,6 +40,7 @@ type retainResponse struct {
 	Async        bool       `json:"async"`
 	OperationID  *string    `json:"operation_id,omitempty"`
 	OperationIDs []string   `json:"operation_ids,omitempty"`
+	Warnings     []string   `json:"warnings,omitempty"`
 	Usage        tokenUsage `json:"usage"`
 }
 
@@ -90,11 +91,6 @@ func (s *server) retain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database is not configured")
 		return
 	}
-	if s.deps.EmbedClient == nil {
-		writeError(w, http.StatusServiceUnavailable, "embedding service is not configured")
-		return
-	}
-
 	bankID := chi.URLParam(r, "bank_id")
 	if bankID == "" {
 		writeError(w, http.StatusBadRequest, "bank_id is required")
@@ -120,24 +116,29 @@ func (s *server) retain(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
+	// Expand any large items into token-bounded chunks with overlap.
+	expandedItems := expandItems(req.Items)
+
 	// Two-level batching: split items by SINGULARITY_RETAIN_BATCH_TOKENS
 	batchTokenLimit := s.deps.Config.RetainBatchTokens
 	if batchTokenLimit <= 0 {
 		batchTokenLimit = 8000
 	}
 
-	subBatches := splitIntoSubBatches(req.Items, batchTokenLimit)
+	subBatches := splitIntoSubBatches(expandedItems, batchTokenLimit)
 
 	if s.deps.Logger != nil {
 		s.deps.Logger.Info("retain start",
 			"bank_id", bankID,
 			"item_count", len(req.Items),
+			"expanded_count", len(expandedItems),
 			"sub_batch_count", len(subBatches),
 		)
 	}
 
 	var allUnits []processedMemoryUnit
 	var totalInputTokens int
+	var warnings []string
 
 	for batchIdx, batch := range subBatches {
 		batchStart := time.Now()
@@ -152,26 +153,28 @@ func (s *server) retain(w http.ResponseWriter, r *http.Request) {
 			totalInputTokens += estimateTokens(item.Content)
 		}
 
-		// Call embed client for the sub-batch
-		embeddings, err := s.deps.EmbedClient.Embed(r.Context(), texts)
-		if err != nil {
-			if s.deps.Logger != nil {
-				s.deps.Logger.Error("embed failed", "error", err, "bank_id", bankID, "batch", batchIdx)
+		embeddings := make([][]float32, len(batch))
+		if s.deps.EmbedClient != nil {
+			vectors, err := s.deps.EmbedClient.Embed(r.Context(), texts)
+			if err != nil {
+				if s.deps.Logger != nil {
+					s.deps.Logger.Warn("embed failed; storing text-only memories", "error", err, "bank_id", bankID, "batch", batchIdx)
+				}
+				warnings = append(warnings, "embedding service unavailable; stored text-only memories")
+			} else if len(vectors) != len(batch) {
+				if s.deps.Logger != nil {
+					s.deps.Logger.Warn("embed count mismatch; storing text-only memories",
+						"expected", len(batch),
+						"got", len(vectors),
+						"bank_id", bankID,
+					)
+				}
+				warnings = append(warnings, "embedding service returned unexpected vector count; stored text-only memories")
+			} else {
+				embeddings = vectors
 			}
-			writeError(w, http.StatusBadGateway, "embedding service unavailable")
-			return
-		}
-
-		if len(embeddings) != len(batch) {
-			if s.deps.Logger != nil {
-				s.deps.Logger.Error("embed count mismatch",
-					"expected", len(batch),
-					"got", len(embeddings),
-					"bank_id", bankID,
-				)
-			}
-			writeError(w, http.StatusBadGateway, "embedding service returned unexpected vector count")
-			return
+		} else {
+			warnings = append(warnings, "embedding service not configured; stored text-only memories")
 		}
 
 		// Build processed units
@@ -284,8 +287,25 @@ func (s *server) retain(w http.ResponseWriter, r *http.Request) {
 			OutputTokens: 0,
 			TotalTokens:  totalInputTokens,
 		},
+		Warnings: uniqueWarnings(warnings),
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func uniqueWarnings(warnings []string) []string {
+	if len(warnings) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(warnings))
+	out := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		if _, ok := seen[warning]; ok {
+			continue
+		}
+		seen[warning] = struct{}{}
+		out = append(out, warning)
+	}
+	return out
 }
 
 // ---------------------------------------------------------------------------

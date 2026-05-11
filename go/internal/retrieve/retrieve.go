@@ -410,28 +410,13 @@ func CombinedSemanticBM25(
 // ---------------------------------------------------------------------------
 
 func tokenizeQuery(text string) []string {
-	// Strip punctuation, lowercase, split on whitespace.
-	cleaned := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == ' ' {
-			return r
-		}
-		return ' '
-	}, text)
-	cleaned = strings.ToLower(strings.TrimSpace(cleaned))
-	if cleaned == "" {
+	// The actual BM25 tokenization is done DB-side via llmlingua2 inside
+	// to_bm25query(). This function only gates whether the BM25 lane is
+	// enabled at all — return non-nil for any non-empty query.
+	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	parts := strings.Fields(cleaned)
-	// Deduplicate while preserving order.
-	seen := make(map[string]struct{}, len(parts))
-	var out []string
-	for _, p := range parts {
-		if _, ok := seen[p]; !ok {
-			seen[p] = struct{}{}
-			out = append(out, p)
-		}
-	}
-	return out
+	return []string{text}
 }
 
 func scanFullResults(rows pgx.Rows, perFactTypeLimit int, scoreFn func(*FullRetrievalResult) float64) ([]*FullRetrievalResult, error) {
