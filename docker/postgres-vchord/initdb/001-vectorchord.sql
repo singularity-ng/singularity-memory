@@ -1,4 +1,4 @@
-\echo 'Enabling Singularity Memory PostgreSQL extensions'
+\echo 'Enabling Operations Memory PostgreSQL extensions'
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS vchord CASCADE;

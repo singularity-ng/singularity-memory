@@ -1,15 +1,10 @@
 .git/**
 .sf/**
 .bg-shell/**
-.pytest_cache/**
 .venv/**
 venv/**
 node_modules/**
 **/node_modules/**
-extensions/openclaw/node_modules/**
-**/__pycache__/**
-*.pyc
-*.egg-info/**
 build/**
 dist/**
 target/**
@@ -18,5 +13,4 @@ coverage/**
 .cache/**
 tmp/**
 *.log
-go/singularity-memory-go
-eval-workspace/**
+./operations-memory-go

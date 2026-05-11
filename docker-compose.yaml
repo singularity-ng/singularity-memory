@@ -1,52 +1,52 @@
 services:
-  singularity-memory-postgres:
+  operations-memory-postgres:
     build:
       context: ./docker/postgres-vchord
       args:
         VCHORD_SUITE_IMAGE: ghcr.io/tensorchord/vchord-suite:pg18-latest
-    image: singularity-memory-postgres-vchord:pg18
+    image: operations-memory-postgres-vchord:pg18
     environment:
-      POSTGRES_USER: singularity_memory
+      POSTGRES_USER: operations_memory
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: singularity_memory
+      POSTGRES_DB: operations_memory
     ports:
       - "5432:5432"
     volumes:
-      - singularity-memory-db-data:/var/lib/postgresql/data
+      - operations-memory-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U singularity_memory -d singularity_memory"]
+      test: ["CMD-SHELL", "pg_isready -U operations_memory -d operations_memory"]
       interval: 5s
       timeout: 5s
       retries: 20
 
-  # Standalone Singularity Memory server, backed by the Postgres above.
-  # Run: docker compose up -d singularity-memory-postgres singularity-memory
-  singularity-memory:
+  # Standalone Operations Memory server, backed by the Postgres above.
+  # Run: docker compose up -d operations-memory-postgres operations-memory
+  operations-memory:
     build:
       context: .
-      dockerfile: docker/singularity-memory-go/Dockerfile
-    image: singularity-memory-go:local
+      dockerfile: docker/operations-memory/Dockerfile
+    image: operations-memory-go:local
     environment:
-      SINGULARITY_DATABASE_URL: postgresql://singularity_memory:password@singularity-memory-postgres:5432/singularity_memory
-      SINGULARITY_MCP_ENABLED: "true"
-      SINGULARITY_HOST: "0.0.0.0"
-      SINGULARITY_PORT: "8888"
-      SINGULARITY_FEATURE_BANKS: "true"
-      SINGULARITY_STORAGE_PROFILE: vchord
-      SINGULARITY_EMBEDDINGS_PROVIDER: ${SINGULARITY_EMBEDDINGS_PROVIDER:-openai}
-      SINGULARITY_EMBEDDINGS_OPENAI_API_KEY: ${SINGULARITY_EMBEDDINGS_OPENAI_API_KEY:-}
-      SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL: ${SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL:-https://llm-gateway.centralcloud.com/v1}
-      SINGULARITY_EMBEDDINGS_OPENAI_MODEL: ${SINGULARITY_EMBEDDINGS_OPENAI_MODEL:-qwen/qwen3-embedding-4b}
-      SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS: ${SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS:-}
-      SINGULARITY_RERANK_OPENAI_BASE_URL: ${SINGULARITY_RERANK_OPENAI_BASE_URL:-https://llm-gateway.centralcloud.com/v1}
-      SINGULARITY_RERANK_MODEL: ${SINGULARITY_RERANK_MODEL:-qwen/qwen3-reranker-4b}
-      SINGULARITY_VECTOR_EXTENSION: vchord
-      SINGULARITY_TEXT_SEARCH_EXTENSION: vchord
+      OPS_MEMORY_DATABASE_URL: postgresql://operations_memory:password@operations-memory-postgres:5432/operations_memory
+      OPS_MEMORY_MCP_ENABLED: "true"
+      OPS_MEMORY_HOST: "0.0.0.0"
+      OPS_MEMORY_PORT: "8888"
+      OPS_MEMORY_FEATURE_BANKS: "true"
+      OPS_MEMORY_STORAGE_PROFILE: vchord
+      OPS_MEMORY_EMBEDDINGS_PROVIDER: ${OPS_MEMORY_EMBEDDINGS_PROVIDER:-openai}
+      OPS_MEMORY_EMBEDDINGS_OPENAI_API_KEY: ${OPS_MEMORY_EMBEDDINGS_OPENAI_API_KEY:-}
+      OPS_MEMORY_EMBEDDINGS_OPENAI_BASE_URL: ${OPS_MEMORY_EMBEDDINGS_OPENAI_BASE_URL:-https://llm-gateway.centralcloud.com/v1}
+      OPS_MEMORY_EMBEDDINGS_OPENAI_MODEL: ${OPS_MEMORY_EMBEDDINGS_OPENAI_MODEL:-qwen/qwen3-embedding-4b}
+      OPS_MEMORY_EMBEDDINGS_OPENAI_DIMENSIONS: ${OPS_MEMORY_EMBEDDINGS_OPENAI_DIMENSIONS:-}
+      OPS_MEMORY_RERANK_OPENAI_BASE_URL: ${OPS_MEMORY_RERANK_OPENAI_BASE_URL:-https://llm-gateway.centralcloud.com/v1}
+      OPS_MEMORY_RERANK_MODEL: ${OPS_MEMORY_RERANK_MODEL:-qwen/qwen3-reranker-4b}
+      OPS_MEMORY_VECTOR_EXTENSION: vchord
+      OPS_MEMORY_TEXT_SEARCH_EXTENSION: vchord
     ports:
       - "8888:8888"
     depends_on:
-      singularity-memory-postgres:
+      operations-memory-postgres:
         condition: service_healthy
 
 volumes:
-  singularity-memory-db-data:
+  operations-memory-db-data:

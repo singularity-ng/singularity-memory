@@ -1,20 +1,27 @@
 # Architecture
 
-This file is the short map of the codebase. Keep it current and compact.
+Operations Memory is a single Go service backed by Postgres 18 with
+VectorChord and VectorChord-BM25.
 
-## Purpose
+## Runtime
 
-Describe the product, its users, and the job this repository exists to do.
+- `cmd/operations-memory-go` starts the HTTP/MCP server.
+- `internal/httpapi` owns routes, request/response shapes, and MCP tool
+  delegation.
+- `internal/store` owns Postgres access, schema helpers, core memory blocks,
+  brain pages, entity persistence, and consolidation/reflect helpers.
+- `internal/retrieve` owns semantic, BM25, graph, temporal, and RRF retrieval.
+- `internal/embed` and `internal/rerank` call OpenAI-compatible gateways.
 
-## Codemap
+## Storage
 
-- `src/`: primary implementation.
-- `tests/`: behavior and regression coverage.
-- `docs/`: durable product, design, plan, reliability, and security context.
+The storage target is external Postgres 18 with:
 
-## Invariants
+- `vector`
+- `vchord`
+- `pg_tokenizer`
+- `vchord_bm25`
+- `pg_trgm`
 
-- Prefer small, named modules with clear ownership.
-- Behavior changes need tests or an explicit eval.
-- Keep generated artifacts out of hand-written design docs.
-- Update this map when new top-level concepts or directories become important.
+The active deployment path is Docker Compose or a manually managed Postgres
+with the same extensions installed.

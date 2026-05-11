@@ -1,0 +1,8 @@
+name: operations_memory
+version: 0.1.0
+description: "Operations Memory provider for Hermes Agent."
+hooks:
+  - prefetch
+  - sync_turn
+  - on_pre_compress
+  - on_memory_write

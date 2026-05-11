@@ -1,12 +1,8 @@
-__pycache__/
-*.pyc
-*.egg-info/
 build/
 dist/
-.pytest_cache/
 .venv/
 .env
-go/singularity-memory-go
+./operations-memory-go
 
 # ── SF baseline (auto-generated) ──
 .DS_Store

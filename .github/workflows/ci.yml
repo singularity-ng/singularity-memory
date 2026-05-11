@@ -13,11 +13,11 @@ jobs:
       postgres:
         image: ghcr.io/tensorchord/vchord-suite:pg18-latest
         env:
-          POSTGRES_USER: singularity_memory
+          POSTGRES_USER: operations_memory
           POSTGRES_PASSWORD: password
-          POSTGRES_DB: singularity_memory_test
+          POSTGRES_DB: operations_memory_test
         options: >-
-          --health-cmd "pg_isready -U singularity_memory -d singularity_memory_test"
+          --health-cmd "pg_isready -U operations_memory -d operations_memory_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -27,12 +27,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.24"
       - name: Go build
-        run: cd go && go build ./...
+        run: go build ./...
       - name: Go test
-        run: cd go && go test ./...
+        run: go test ./...
         env:
-          SINGULARITY_DATABASE_URL: postgresql://singularity_memory:password@localhost:5432/singularity_memory_test
-          SINGULARITY_STORAGE_PROFILE: vchord
-          SINGULARITY_EMBEDDINGS_OPENAI_MODEL: qwen/qwen3-embedding-4b
+          OPS_MEMORY_DATABASE_URL: postgresql://operations_memory:password@localhost:5432/operations_memory_test
+          OPS_MEMORY_STORAGE_PROFILE: vchord
+          OPS_MEMORY_EMBEDDINGS_OPENAI_MODEL: qwen/qwen3-embedding-4b
