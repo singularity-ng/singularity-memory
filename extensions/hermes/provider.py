@@ -1,13 +1,13 @@
-"""Singularity Memory plugin — MemoryProvider backed by Singularity Memory server.
+"""Ops Memory plugin — MemoryProvider backed by Operations Memory server.
 
 Postgres-backed memory with BM25 + vector + RRF fusion retrieval and optional
-cross-encoder reranking. One server instance is shared across Hermes, OpenClaw,
-Claude Code, and any MCP-aware client — memories persist and move with the user.
+cross-encoder reranking. Per-agent banks with a shared bank for cross-agent context
+(runbooks, incident outcomes, failure fingerprints).
 
-Config ($HERMES_HOME/singularity-memory.json or env vars):
-  SINGULARITY_SERVER_URL  — server base URL (default: http://localhost:8888)
-  SINGULARITY_API_KEY     — API key if server requires auth (optional)
-  SINGULARITY_BANK_ID     — bank ID override (default: hermes or hermes.<profile>)
+Config ($HERMES_HOME/ops-memory.json or env vars):
+  OPS_MEMORY_URL   — server base URL (default: http://localhost:8888)
+  OPS_MEMORY_KEY   — API key if server requires auth (optional)
+  OPS_MEMORY_BANK  — bank ID override (default: hermes or hermes.<profile>)
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_FILE = "singularity-memory.json"
+_CONFIG_FILE = "ops-memory.json"
 _DEFAULT_URL = "http://localhost:8888"
 
 
@@ -123,7 +123,7 @@ def _request(method: str, url: str, body: Any = None, api_key: str = "") -> Any:
 # Provider
 # ---------------------------------------------------------------------------
 
-class SingularityMemoryProvider(MemoryProvider):
+class OpsMemoryProvider(MemoryProvider):
 
     def __init__(self):
         self._server_url = _DEFAULT_URL
@@ -139,13 +139,13 @@ class SingularityMemoryProvider(MemoryProvider):
 
     @property
     def name(self) -> str:
-        return "singularity_memory"
+        return "ops_memory"
 
     # -- Availability --------------------------------------------------------
 
     def is_available(self) -> bool:
         cfg = self._load_config()
-        url = os.environ.get("SINGULARITY_SERVER_URL") or cfg.get("server_url") or _DEFAULT_URL
+        url = os.environ.get("OPS_MEMORY_URL") or cfg.get("server_url") or _DEFAULT_URL
         return bool(url)
 
     # -- Lifecycle -----------------------------------------------------------
@@ -154,16 +154,16 @@ class SingularityMemoryProvider(MemoryProvider):
         cfg = self._load_config()
 
         self._server_url = (
-            os.environ.get("SINGULARITY_SERVER_URL")
+            os.environ.get("OPS_MEMORY_URL")
             or cfg.get("server_url")
             or _DEFAULT_URL
         ).rstrip("/")
 
-        self._api_key = os.environ.get("SINGULARITY_API_KEY") or cfg.get("api_key") or ""
+        self._api_key = os.environ.get("OPS_MEMORY_KEY") or cfg.get("api_key") or ""
 
         agent_identity = kwargs.get("agent_identity") or kwargs.get("agent_workspace") or ""
         self._bank_id = (
-            os.environ.get("SINGULARITY_BANK_ID")
+            os.environ.get("OPS_MEMORY_BANK")
             or cfg.get("bank_id")
             or (f"hermes.{agent_identity}" if agent_identity else "hermes")
         )
@@ -174,7 +174,7 @@ class SingularityMemoryProvider(MemoryProvider):
         try:
             _request("PUT", self._bank_url(), body={}, api_key=self._api_key)
         except Exception as e:
-            logger.warning("singularity_memory: bank init failed (server may not be up): %s", e)
+            logger.warning("ops_memory: bank init failed (server may not be up): %s", e)
 
     def shutdown(self) -> None:
         for t in (self._prefetch_thread, self._retain_thread):
@@ -185,9 +185,9 @@ class SingularityMemoryProvider(MemoryProvider):
 
     def system_prompt_block(self) -> str:
         return (
-            f"Long-term memory is active via Singularity Memory (bank: {self._bank_id}). "
-            "Use `sm_recall` before answering questions about past conversations, decisions, "
-            "or user preferences. Use `sm_remember` to store anything worth keeping beyond "
+            f"Long-term memory is active (bank: {self._bank_id}). "
+            "Use `sm_recall` before answering questions about past incidents, decisions, "
+            "or runbook procedures. Use `sm_remember` to store anything worth keeping beyond "
             "this session. Memory IDs in recall results can be passed to `sm_forget`."
         )
 
@@ -400,7 +400,7 @@ class SingularityMemoryProvider(MemoryProvider):
         return [
             {
                 "key": "server_url",
-                "description": "Singularity Memory server URL",
+                "description": "Operations Memory server URL",
                 "default": _DEFAULT_URL,
                 "required": False,
             },
@@ -409,7 +409,7 @@ class SingularityMemoryProvider(MemoryProvider):
                 "description": "API key (if server requires auth)",
                 "secret": True,
                 "required": False,
-                "env_var": "SINGULARITY_API_KEY",
+                "env_var": "OPS_MEMORY_KEY",
             },
             {
                 "key": "bank_id",
@@ -438,4 +438,4 @@ class SingularityMemoryProvider(MemoryProvider):
 
 
 def register(ctx) -> None:
-    ctx.register_memory_provider(SingularityMemoryProvider())
+    ctx.register_memory_provider(OpsMemoryProvider())
