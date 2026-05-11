@@ -31,6 +31,7 @@ type Store interface {
 	ListMemoryUnits(ctx context.Context, bankID string, limit int, offset int) ([]store.MemoryUnit, error)
 	FindNonConsolidatedByFingerprint(ctx context.Context, bankID string, fp string, maxAge time.Duration) (string, error)
 	UpdateMemoryText(ctx context.Context, bankID string, unitID string, text string) error
+	AckPostmortemByFingerprint(ctx context.Context, bankID string, fingerprint string, ackedBy string) (int, error)
 
 	// Memory links
 	InsertMemoryLink(ctx context.Context, link *store.MemoryLink) error
@@ -169,6 +170,8 @@ func NewServer(deps Dependencies) http.Handler {
 			Post("/default/banks/{bank_id}/sleep", server.enqueueSleep)
 		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
 			Post("/default/banks/{bank_id}/postmortem", server.enqueuePostmortem)
+		r.With(featureFlagMiddleware(deps.Config.FeatureFlags, "memories")).
+			Post("/default/banks/{bank_id}/postmortem/ack", server.ackPostmortem)
 	})
 
 	// MCP JSON-RPC 2.0 endpoints

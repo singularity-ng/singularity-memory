@@ -485,3 +485,27 @@ return fmt.Errorf("update memory text: %w", err)
 }
 return nil
 }
+
+// AckPostmortemByFingerprint marks all postmortem-tagged memories for a fingerprint as acknowledged.
+// Returns the number of rows updated.
+func (s *Store) AckPostmortemByFingerprint(ctx context.Context, bankID string, fingerprint string, ackedBy string) (int, error) {
+	query := `
+UPDATE ` + s.table("memory_units") + `
+SET metadata = metadata || jsonb_build_object(
+    'acknowledged', true,
+    'acknowledged_at', NOW()::text,
+    'acknowledged_by', $3::text
+),
+updated_at = NOW()
+WHERE bank_id = $1
+  AND metadata->>'alert_fingerprint' = $2
+  AND 'postmortem' = ANY(tags)
+  AND (metadata->>'acknowledged' IS NULL OR metadata->>'acknowledged' = 'false')
+`
+	tag, err := s.pool.Exec(ctx, query, bankID, fingerprint, ackedBy)
+	if err != nil {
+		return 0, fmt.Errorf("ack postmortem: %w", err)
+	}
+	return int(tag.RowsAffected()), nil
+}
+

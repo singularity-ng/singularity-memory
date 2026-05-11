@@ -9,4 +9,5 @@ type ToolBackend interface {
 	ListBanks(ctx context.Context, bankID string, args map[string]any) (any, error)
 	GetBank(ctx context.Context, bankID string, args map[string]any) (any, error)
 	Postmortem(ctx context.Context, bankID string, args map[string]any) (any, error)
+	AckPostmortem(ctx context.Context, bankID string, args map[string]any) (any, error)
 }

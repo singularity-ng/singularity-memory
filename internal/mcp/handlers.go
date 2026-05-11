@@ -142,6 +142,24 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 				"required": []string{"fingerprint"},
 			},
 		},
+		{
+			Name:        "memory_ack_postmortem",
+			Description: "Acknowledge a postmortem report. Marks all lessons and findings for a resolved alert as reviewed. Call this after you have read and actioned the postmortem findings.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"fingerprint": map[string]any{
+						"type":        "string",
+						"description": "The alert fingerprint identifying the incident whose postmortem to acknowledge",
+					},
+					"acked_by": map[string]any{
+						"type":        "string",
+						"description": "Who is acknowledging (e.g., agent name or user). Optional.",
+					},
+				},
+				"required": []string{"fingerprint"},
+			},
+		},
 	}
 
 	return &JSONRPCResponse{
@@ -203,6 +221,11 @@ func (s *Server) handleToolsCall(r *http.Request, req *JSONRPCRequest, sess *Ses
 			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
 		}
 		result, err = s.ToolBackend.Postmortem(ctx, bankID, params)
+	case "memory_ack_postmortem":
+		if s.ToolBackend == nil {
+			return errorResponse(req.ID, ErrServerError, "tool backend not configured")
+		}
+		result, err = s.ToolBackend.AckPostmortem(ctx, bankID, params)
 	default:
 		return errorResponse(req.ID, ErrMethodNotFound, "tool not found: "+toolName)
 	}

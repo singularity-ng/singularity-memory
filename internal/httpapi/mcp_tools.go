@@ -124,6 +124,26 @@ func (b *mcpToolBackend) Postmortem(ctx context.Context, bankID string, args map
 	return parseHandlerResponse(rec)
 }
 
+// AckPostmortem marks postmortem findings for a fingerprint as acknowledged.
+func (b *mcpToolBackend) AckPostmortem(ctx context.Context, bankID string, args map[string]any) (any, error) {
+	reqBody := ackPostmortemRequest{
+		Fingerprint: getString(args, "fingerprint"),
+		AckedBy:     getString(args, "acked_by"),
+	}
+	if reqBody.Fingerprint == "" {
+		return nil, fmt.Errorf("fingerprint is required")
+	}
+
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/v1/default/banks/"+bankID+"/postmortem/ack", bytes.NewReader(body))
+	req = req.WithContext(ctx)
+	req = withBankID(req, bankID)
+	rec := httptest.NewRecorder()
+	b.s.ackPostmortem(rec, req)
+
+	return parseHandlerResponse(rec)
+}
+
 // parseHandlerResponse reads an httptest.ResponseRecorder and returns the parsed JSON body or an error.
 func parseHandlerResponse(rec *httptest.ResponseRecorder) (any, error) {
 	if rec.Code >= 400 {

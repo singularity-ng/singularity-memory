@@ -234,6 +234,9 @@ func (f fakeStore) FindNonConsolidatedByFingerprint(_ context.Context, _ string,
 func (f fakeStore) UpdateMemoryText(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
+func (f fakeStore) AckPostmortemByFingerprint(_ context.Context, _ string, _ string, _ string) (int, error) {
+	return 0, nil
+}
 
 func TestHealthzWithoutStoreIsUnavailable(t *testing.T) {
 	handler := NewServer(Dependencies{Config: config.Config{DatabaseSchema: "public", FeatureFlags: map[string]bool{"banks": true}}})
