@@ -152,6 +152,12 @@ Rules:
 		logger.Info("sleep: cross-agent propagation done", "shared_bank", sharedBankID, "source_bank", bankID)
 	}
 
+	// Runbook effectiveness aggregation: query runbook-effectiveness records from the
+	// last 30 days, build per-runbook usage summary, and update runbook_index core block.
+	if err := aggregateRunbookEffectiveness(ctx, bankID, s, logger); err != nil {
+		logger.Warn("sleep: runbook effectiveness aggregation failed", "bank_id", bankID, "error", err)
+	}
+
 	return nil
 }
 
@@ -268,6 +274,114 @@ Rules:
 		}
 	}
 
+	// Runbook effectiveness records: store one memory per consulted runbook slug
+	// so the sleep worker can aggregate usage patterns over time.
+	if rawSlugs, ok := job.Params["runbook_slugs"]; ok {
+		var slugs []string
+		switch v := rawSlugs.(type) {
+		case []string:
+			slugs = v
+		case []any:
+			for _, s := range v {
+				if str, ok := s.(string); ok && str != "" {
+					slugs = append(slugs, str)
+				}
+			}
+		}
+		summary := rootCause
+		if len(summary) > 120 {
+			summary = summary[:120]
+		}
+		for _, slug := range slugs {
+			slug = strings.TrimSpace(slug)
+			if slug == "" {
+				continue
+			}
+			text := fmt.Sprintf("Runbook %q consulted for incident %s. Root cause: %s", slug, fp, summary)
+			if _, err := s.InsertMemoryUnit(ctx, bankID, &store.MemoryUnit{
+				BankID:    bankID,
+				Text:      text,
+				FactType:  "experience",
+				EventDate: now,
+				Tags:      []string{"runbook-effectiveness", fpTag},
+				Metadata: map[string]any{
+					"runbook_slug": slug,
+					"fingerprint":  fp,
+					"resolved":     true,
+				},
+			}); err != nil {
+				logger.Warn("hindsight: insert runbook effectiveness failed", "bank_id", bankID, "slug", slug, "error", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// aggregateRunbookEffectiveness queries runbook-effectiveness memory records from the
+// last 30 days and appends a usage summary to the runbook_index core block.
+func aggregateRunbookEffectiveness(ctx context.Context, bankID string, s Store, logger *log.Logger) error {
+	rows, err := s.Query(ctx,
+		`SELECT metadata->>'runbook_slug' AS slug, COUNT(*) AS uses
+		 FROM memory_units
+		 WHERE bank_id = $1
+		   AND 'runbook-effectiveness' = ANY(tags)
+		   AND metadata->>'runbook_slug' IS NOT NULL
+		   AND created_at > NOW() - INTERVAL '30 days'
+		 GROUP BY metadata->>'runbook_slug'
+		 ORDER BY uses DESC
+		 LIMIT 20`,
+		bankID,
+	)
+	if err != nil {
+		return fmt.Errorf("query runbook effectiveness: %w", err)
+	}
+	defer rows.Close()
+
+	type slugCount struct {
+		slug string
+		uses int64
+	}
+	var counts []slugCount
+	for rows.Next() {
+		var sc slugCount
+		if err := rows.Scan(&sc.slug, &sc.uses); err != nil {
+			continue
+		}
+		if sc.slug != "" {
+			counts = append(counts, sc)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("scan runbook effectiveness: %w", err)
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n\nRunbook effectiveness (last 30d):\n")
+	for _, sc := range counts {
+		unit := "incident"
+		if sc.uses != 1 {
+			unit = "incidents"
+		}
+		fmt.Fprintf(&sb, "- %s: %d %s\n", sc.slug, sc.uses, unit)
+	}
+	summary := strings.TrimRight(sb.String(), "\n")
+
+	if _, err := s.AppendCoreMemoryBlock(ctx, bankID, "runbook_index", summary); err != nil {
+		// Block may not exist yet — upsert with just the summary.
+		if _, err2 := s.UpsertCoreMemoryBlock(ctx, store.CoreMemoryBlock{
+			BankID:    bankID,
+			BlockName: "runbook_index",
+			Content:   strings.TrimSpace(summary),
+		}); err2 != nil {
+			return fmt.Errorf("upsert runbook_index: %w (append err: %v)", err2, err)
+		}
+	}
+
+	logger.Info("sleep: runbook effectiveness updated", "bank_id", bankID, "runbooks", len(counts))
 	return nil
 }
 

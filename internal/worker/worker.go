@@ -21,6 +21,7 @@ type Store interface {
 	RunDeterministicConsolidation(ctx context.Context, bankID string, limit int) (*store.ConsolidationResult, error)
 	InsertMemoryUnit(ctx context.Context, bankID string, unit *store.MemoryUnit) (string, error)
 	UpsertCoreMemoryBlock(ctx context.Context, block store.CoreMemoryBlock) (*store.CoreMemoryBlock, error)
+	AppendCoreMemoryBlock(ctx context.Context, bankID string, blockName string, text string) (*store.CoreMemoryBlock, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }

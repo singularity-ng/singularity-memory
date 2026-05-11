@@ -10,10 +10,11 @@ import (
 )
 
 type hindsightRequest struct {
-	Fingerprint string `json:"fingerprint"`
-	RootCause   string `json:"root_cause"`
-	Resolution  string `json:"resolution"`
-	ResolvedBy  string `json:"resolved_by"`
+	Fingerprint   string   `json:"fingerprint"`
+	RootCause     string   `json:"root_cause"`
+	Resolution    string   `json:"resolution"`
+	ResolvedBy    string   `json:"resolved_by"`
+	RunbookSlugs  []string `json:"runbook_slugs,omitempty"`
 }
 
 func (s *server) enqueueSleep(w http.ResponseWriter, r *http.Request) {
@@ -50,10 +51,11 @@ func (s *server) enqueueHindsight(w http.ResponseWriter, r *http.Request) {
 	_, err := s.deps.Store.EnqueueBrainJob(r.Context(), bankID, store.BrainJobInput{
 		Kind: "hindsight",
 		Params: map[string]any{
-			"fingerprint": req.Fingerprint,
-			"root_cause":  req.RootCause,
-			"resolution":  req.Resolution,
-			"resolved_by": req.ResolvedBy,
+			"fingerprint":   req.Fingerprint,
+			"root_cause":    req.RootCause,
+			"resolution":    req.Resolution,
+			"resolved_by":   req.ResolvedBy,
+			"runbook_slugs": req.RunbookSlugs,
 		},
 	})
 	if err != nil {
