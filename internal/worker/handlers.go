@@ -152,10 +152,23 @@ Rules:
 		logger.Info("sleep: cross-agent propagation done", "shared_bank", sharedBankID, "source_bank", bankID)
 	}
 
+	// Proactive context injection: if any observations mention active incident patterns
+	// or known failure modes, preemptively update the active_incidents core block with
+	// relevant runbook hints so agents get them on their next context fetch.
+	if err := proactiveContextInjection(ctx, bankID, parsed.Observations, s, logger); err != nil {
+		logger.Warn("sleep: proactive injection failed", "bank_id", bankID, "error", err)
+	}
+
 	// Runbook effectiveness aggregation: query runbook-effectiveness records from the
 	// last 30 days, build per-runbook usage summary, and update runbook_index core block.
 	if err := aggregateRunbookEffectiveness(ctx, bankID, s, logger); err != nil {
 		logger.Warn("sleep: runbook effectiveness aggregation failed", "bank_id", bankID, "error", err)
+	}
+
+	// Memory decay: archive routine low-confidence memories older than 90 days
+	// so they don't dominate recall. Preserves experience/runbook/hindsight types.
+	if err := decayOldMemories(ctx, bankID, s, logger); err != nil {
+		logger.Warn("sleep: memory decay failed", "bank_id", bankID, "error", err)
 	}
 
 	return nil
@@ -382,6 +395,71 @@ func aggregateRunbookEffectiveness(ctx context.Context, bankID string, s Store, 
 	}
 
 	logger.Info("sleep: runbook effectiveness updated", "bank_id", bankID, "runbooks", len(counts))
+	return nil
+}
+
+// proactiveContextInjection checks sleep observations for active incident patterns
+// and appends relevant runbook hints to the active_incidents core block so agents
+// have them immediately on their next context fetch — without waiting for a recall query.
+func proactiveContextInjection(ctx context.Context, bankID string, observations []string, s Store, logger *log.Logger) error {
+	var hints []string
+	for _, obs := range observations {
+		lc := strings.ToLower(obs)
+		// Look for observations that indicate an active or recurring pattern with a known fix.
+		isActionable := (strings.Contains(lc, "next time") ||
+			strings.Contains(lc, "always check") ||
+			strings.Contains(lc, "check first") ||
+			strings.Contains(lc, "runbook") ||
+			strings.Contains(lc, "typically caused")) &&
+			(strings.Contains(lc, "firing") ||
+				strings.Contains(lc, "recurring") ||
+				strings.Contains(lc, "pattern") ||
+				strings.Contains(lc, "check") ||
+				strings.Contains(lc, "runbook"))
+		if isActionable {
+			hints = append(hints, "💡 "+strings.TrimSpace(obs))
+		}
+	}
+	if len(hints) == 0 {
+		return nil
+	}
+
+	hint := "\n\nSleep worker hints:\n" + strings.Join(hints, "\n")
+	if _, err := s.AppendCoreMemoryBlock(ctx, bankID, "active_incidents", hint); err != nil {
+		// Block may not exist yet — create it.
+		if _, err2 := s.UpsertCoreMemoryBlock(ctx, store.CoreMemoryBlock{
+			BankID:    bankID,
+			BlockName: "active_incidents",
+			Content:   strings.TrimSpace(hint),
+		}); err2 != nil {
+			return fmt.Errorf("upsert active_incidents: %w (append err: %v)", err2, err)
+		}
+	}
+	logger.Info("sleep: proactive injection done", "bank_id", bankID, "hints", len(hints))
+	return nil
+}
+
+// decayOldMemories archives routine low-signal memories older than 90 days by
+// marking them consolidated so they no longer appear in active recall.
+// Preserved types: experience, runbook, fact. Only observation/event with low confidence are archived.
+func decayOldMemories(ctx context.Context, bankID string, s Store, logger *log.Logger) error {
+	rows, err := s.Query(ctx,
+		`UPDATE memory_units
+		 SET consolidated_at = NOW(), updated_at = NOW()
+		 WHERE bank_id = $1
+		   AND consolidated_at IS NULL
+		   AND created_at < NOW() - INTERVAL '90 days'
+		   AND fact_type IN ('observation', 'event')
+		   AND (confidence_score IS NULL OR confidence_score < 0.5)
+		   AND NOT (tags && ARRAY['hindsight','runbook-effectiveness','runbook-gap','experience'])
+		`,
+		bankID,
+	)
+	if err != nil {
+		return fmt.Errorf("decay query: %w", err)
+	}
+	rows.Close()
+	logger.Info("sleep: memory decay pass complete", "bank_id", bankID)
 	return nil
 }
 

@@ -68,8 +68,13 @@ func (s *server) contextPacket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sections := make([]contextPacketSection, 0, len(blocks)+1)
+	// Order blocks by mode priority.
+	blocks = orderBlocksForMode(blocks, req.Mode)
+
+	sections := make([]contextPacketSection, 0, len(blocks)+2)
 	usedTokens := 0
+
+	// Core memory blocks — ordered by mode.
 	for _, block := range blocks {
 		text, truncated := truncateForPacket(block.Content, remainingPacketTokens(req.MaxTokens, usedTokens))
 		if text == "" {
@@ -82,13 +87,15 @@ func (s *server) contextPacket(w http.ResponseWriter, r *http.Request) {
 			Truncated: truncated,
 		})
 	}
+
+	// Reflection content — filtered/ordered by mode.
 	if reflection != nil {
-		text, truncated := truncateForPacket(reflectionText(reflection), remainingPacketTokens(req.MaxTokens, usedTokens))
-		if text != "" {
-			usedTokens += estimateTokens(text)
+		reflText, truncated := truncateForPacket(reflectionTextForMode(reflection, req.Mode), remainingPacketTokens(req.MaxTokens, usedTokens))
+		if reflText != "" {
+			usedTokens += estimateTokens(reflText)
 			sections = append(sections, contextPacketSection{
 				Name:      "reflection",
-				Text:      text,
+				Text:      reflText,
 				Truncated: truncated,
 			})
 		}
@@ -116,6 +123,55 @@ func (s *server) contextPacket(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// orderBlocksForMode reorders core memory blocks so mode-relevant blocks appear first.
+// active_incident: active_incidents → runbook_index → rest
+// runbook_lookup:  runbook_index → active_incidents → rest
+// agent (default): original order
+func orderBlocksForMode(blocks []store.CoreMemoryBlock, mode string) []store.CoreMemoryBlock {
+	priority := map[string]int{}
+	switch mode {
+	case "active_incident":
+		priority["active_incidents"] = 0
+		priority["runbook_index"] = 1
+		priority["persona"] = 2
+	case "runbook_lookup":
+		priority["runbook_index"] = 0
+		priority["active_incidents"] = 2
+		priority["persona"] = 1
+	default:
+		return blocks
+	}
+
+	out := make([]store.CoreMemoryBlock, 0, len(blocks))
+	rest := make([]store.CoreMemoryBlock, 0)
+	scored := make([]struct {
+		block store.CoreMemoryBlock
+		score int
+	}, 0, len(blocks))
+
+	for _, b := range blocks {
+		if p, ok := priority[b.BlockName]; ok {
+			scored = append(scored, struct {
+				block store.CoreMemoryBlock
+				score int
+			}{b, p})
+		} else {
+			rest = append(rest, b)
+		}
+	}
+	// Simple insertion sort by score (small N).
+	for i := 1; i < len(scored); i++ {
+		for j := i; j > 0 && scored[j].score < scored[j-1].score; j-- {
+			scored[j], scored[j-1] = scored[j-1], scored[j]
+		}
+	}
+	for _, s := range scored {
+		out = append(out, s.block)
+	}
+	out = append(out, rest...)
+	return out
+}
+
 func remainingPacketTokens(maxTokens int, usedTokens int) int {
 	if maxTokens <= 0 {
 		return 0
@@ -123,22 +179,40 @@ func remainingPacketTokens(maxTokens int, usedTokens int) int {
 	return maxTokens - usedTokens
 }
 
-func reflectionText(reflection *store.Reflection) string {
+// reflectionTextForMode returns reflection content ordered/filtered for the given mode.
+// runbook_lookup: brain pages first (runbook content), then observations.
+// active_incident: observations first (recent activity), then pages.
+// agent: original order (observations + pages).
+func reflectionTextForMode(reflection *store.Reflection, mode string) string {
 	if reflection == nil {
 		return ""
 	}
-	var parts []string
+	var obsParts, pageParts []string
 	for _, observation := range reflection.Observations {
 		if strings.TrimSpace(observation.Text) != "" {
-			parts = append(parts, observation.Text)
+			obsParts = append(obsParts, observation.Text)
 		}
 	}
 	for _, page := range reflection.Pages {
 		if strings.TrimSpace(page.Content) != "" {
-			parts = append(parts, page.Content)
+			pageParts = append(pageParts, page.Content)
 		}
 	}
-	return strings.Join(parts, "\n")
+	switch mode {
+	case "runbook_lookup":
+		// Pages (runbooks/brain pages) before observations.
+		return strings.Join(append(pageParts, obsParts...), "\n")
+	case "active_incident":
+		// Recent observations (incident activity) before pages.
+		return strings.Join(append(obsParts, pageParts...), "\n")
+	default:
+		return strings.Join(append(obsParts, pageParts...), "\n")
+	}
+}
+
+// reflectionText returns all reflection content in default order (kept for compatibility).
+func reflectionText(reflection *store.Reflection) string {
+	return reflectionTextForMode(reflection, "agent")
 }
 
 func truncateForPacket(text string, remainingTokens int) (string, bool) {
