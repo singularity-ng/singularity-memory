@@ -1,38 +1,28 @@
-# Singularity Memory Provider
+# Ops Memory Provider
 
 Postgres-backed memory with BM25 + vector + RRF fusion retrieval and optional
-cross-encoder reranking. One server instance is shared across Hermes, OpenClaw,
-and Claude Code — memories persist and move with the user, not the tool.
+cross-encoder reranking. Per-agent private banks plus a shared bank for
+cross-agent context (runbooks, incident outcomes, failure fingerprints).
 
 ## Requirements
 
-- Singularity Memory server running (see `singularity-memory` repo, `go/` directory)
-- Postgres 18 + VectorChord (`vchord`) on the server side
+- Operations Memory server running (`git.infra.centralcloud.com/centralcloud/operations-memory`)
+- Postgres + VectorChord (`vchord`) on the server side
 
-## Setup
+## Setup (in Hermes config.yaml)
 
-```bash
-hermes memory setup  # select "singularity_memory"
+```yaml
+memory:
+  provider: ops_memory
 ```
 
-Or manually:
+Env vars (set in pod deployment):
 
-```bash
-hermes config set memory.provider singularity_memory
-# add to $HERMES_HOME/singularity-memory.json:
-echo '{"server_url": "http://singularity-memory.centralcloud-ops.svc:8888"}' \
-  > ~/.hermes/singularity-memory.json
-```
-
-## Config
-
-| Key | Env var | Default | Description |
-|-----|---------|---------|-------------|
-| `server_url` | `SINGULARITY_SERVER_URL` | `http://localhost:8888` | Server base URL |
-| `api_key` | `SINGULARITY_API_KEY` | — | API key if server requires auth |
-| `bank_id` | `SINGULARITY_BANK_ID` | `hermes` or `hermes.<profile>` | Memory bank ID |
-
-Config file: `$HERMES_HOME/singularity-memory.json`
+| Env var | Description |
+|---------|-------------|
+| `OPS_MEMORY_URL` | Server base URL (e.g. `http://operations-memory.centralcloud-ops-memory.svc:8888`) |
+| `OPS_MEMORY_BANK` | Bank ID for this agent (e.g. `ops-agent`, `incident-commander`) |
+| `OPS_MEMORY_KEY` | API key if server requires auth (optional) |
 
 ## Tools
 
@@ -42,7 +32,12 @@ Config file: `$HERMES_HOME/singularity-memory.json`
 | `sm_remember` | Explicitly persist a fact to long-term memory |
 | `sm_forget` | Delete a specific memory by ID |
 
-## Bank isolation
+## Bank layout
 
-Each Hermes profile gets its own bank (`hermes.<profile>`). Set `SINGULARITY_BANK_ID`
-to share a bank across profiles or with other tools.
+| Bank | Purpose |
+|------|---------|
+| `shared` | Runbooks, incident outcomes, failure fingerprints (all agents R/W) |
+| `ops-agent` | Staff conversations, HostBill context (private) |
+| `incident-commander` | Incident working memory (private) |
+| `comms-agent` | Comms drafts, notification history (private) |
+| `router` | Routing patterns (private) |
