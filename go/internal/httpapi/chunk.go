@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -34,7 +35,7 @@ func chunkItem(item retainItem) []retainItem {
 		child := item // copy all fields (tags, metadata, timestamps, etc.)
 		child.Content = t
 		if item.DocumentID != "" {
-			child.DocumentID = item.DocumentID + ":chunk" + itoa(i+1)
+			child.DocumentID = item.DocumentID + ":chunk" + strconv.Itoa(i+1)
 		}
 		out = append(out, child)
 	}
@@ -119,14 +120,21 @@ func splitMarkdown(text string, maxTokens, overlapTokens int) []string {
 	return out
 }
 
-// splitOnHeadings breaks text at lines that start with one or more '#'.
+// splitOnHeadings breaks text at lines that start with one or more '#',
+// but never inside a fenced code block (``` or ~~~).
 // The heading line is included at the start of its section.
 func splitOnHeadings(text string) []string {
 	lines := strings.Split(text, "\n")
 	var sections []string
 	var current []string
+	inFence := false
 	for _, line := range lines {
-		if strings.HasPrefix(line, "#") && len(current) > 0 {
+		trimmed := strings.TrimSpace(line)
+		// Toggle fence state on ``` or ~~~ delimiters.
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+		}
+		if !inFence && strings.HasPrefix(line, "#") && len(current) > 0 {
 			sections = append(sections, strings.Join(current, "\n"))
 			current = current[:0]
 		}
@@ -179,17 +187,4 @@ func lastWords(text string, n int) string {
 		return text
 	}
 	return strings.Join(words[len(words)-n:], " ")
-}
-
-// itoa converts an int to a string without importing strconv (avoids import cycle risk).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	buf := make([]byte, 0, 10)
-	for n > 0 {
-		buf = append([]byte{byte('0' + n%10)}, buf...)
-		n /= 10
-	}
-	return string(buf)
 }
