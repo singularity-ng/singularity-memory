@@ -2793,6 +2793,14 @@ def _register_routes(app: FastAPI):
     # Create audit decorator bound to this app's audit logger
     audited = _make_audited_http(lambda: getattr(app.state, "audit_logger", None))
 
+    class _AdapterRetainRequest(BaseModel):
+        content: str
+        context: str | None = None
+        metadata: dict[str, Any] | None = None
+        document_id: str | None = None
+        tags: list[str] | None = None
+        async_: bool = Field(default=False, alias="async")
+
     def get_request_context(authorization: str | None = Header(default=None)) -> RequestContext:
         """
         Extract request context from Authorization header.
@@ -2838,6 +2846,15 @@ def _register_routes(app: FastAPI):
         health = await app.state.memory.health_check()
         status_code = 200 if health.get("status") == "healthy" else 503
         return JSONResponse(content=health, status_code=status_code)
+
+    @app.get(
+        "/healthz",
+        summary="Adapter-compatible health check endpoint",
+        tags=["Monitoring"],
+    )
+    async def healthz_endpoint():
+        """Compatibility alias for standalone clients that expect /healthz."""
+        return await health_endpoint()
 
     @app.get(
         "/version",
@@ -3075,7 +3092,7 @@ def _register_routes(app: FastAPI):
         request_context: RequestContext = Depends(get_request_context),
     ):
         try:
-            return {"bank_id": bank_id, "blocks": await memory.get_core_memory(bank_id=bank_id)}
+            return {"bank_id": bank_id, "blocks": await app.state.memory.get_core_memory(bank_id=bank_id)}
         except (AuthenticationError, HTTPException):
             raise
         except Exception as e:
@@ -3095,7 +3112,7 @@ def _register_routes(app: FastAPI):
         request_context: RequestContext = Depends(get_request_context),
     ):
         try:
-            return await memory.core_memory_set(
+            return await app.state.memory.core_memory_set(
                 bank_id=bank_id,
                 block_name=block_name,
                 content=request.content,
@@ -3123,7 +3140,7 @@ def _register_routes(app: FastAPI):
         request_context: RequestContext = Depends(get_request_context),
     ):
         try:
-            return await memory.core_memory_append(
+            return await app.state.memory.core_memory_append(
                 bank_id=bank_id,
                 block_name=block_name,
                 text=request.text,
@@ -3147,7 +3164,7 @@ def _register_routes(app: FastAPI):
         request_context: RequestContext = Depends(get_request_context),
     ):
         try:
-            return await memory.core_memory_replace(
+            return await app.state.memory.core_memory_replace(
                 bank_id=bank_id,
                 block_name=block_name,
                 old_text=request.old_text,
@@ -3173,13 +3190,86 @@ def _register_routes(app: FastAPI):
         request_context: RequestContext = Depends(get_request_context),
     ):
         try:
-            removed = await memory.core_memory_delete(bank_id=bank_id, block_name=block_name)
+            removed = await app.state.memory.core_memory_delete(bank_id=bank_id, block_name=block_name)
             return {"bank_id": bank_id, "block_name": block_name, "removed": removed}
         except (AuthenticationError, HTTPException):
             raise
         except Exception as e:
             logger.error(f"Error in DELETE /v1/default/banks/{bank_id}/core-memory/{block_name}: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get(
+        "/v1/{workspace}/banks/{bank_id}/core-memory",
+        summary="Adapter-compatible core memory read",
+        tags=["Memory"],
+    )
+    async def api_adapter_core_memory_get_all(
+        workspace: str,
+        bank_id: str,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        _ = workspace
+        return await api_core_memory_get_all(bank_id=bank_id, request_context=request_context)
+
+    @app.put(
+        "/v1/{workspace}/banks/{bank_id}/core-memory/{block_name}",
+        summary="Adapter-compatible core memory set",
+        tags=["Memory"],
+    )
+    async def api_adapter_core_memory_set(
+        workspace: str,
+        bank_id: str,
+        block_name: str,
+        request: _CoreMemorySetRequest,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        _ = workspace
+        return await api_core_memory_set(
+            bank_id=bank_id,
+            block_name=block_name,
+            request=request,
+            request_context=request_context,
+        )
+
+    @app.patch(
+        "/v1/{workspace}/banks/{bank_id}/core-memory/{block_name}/append",
+        summary="Adapter-compatible core memory append",
+        tags=["Memory"],
+    )
+    async def api_adapter_core_memory_append(
+        workspace: str,
+        bank_id: str,
+        block_name: str,
+        request: _CoreMemoryAppendRequest,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        _ = workspace
+        return await api_core_memory_append(
+            bank_id=bank_id,
+            block_name=block_name,
+            request=request,
+            request_context=request_context,
+        )
+
+    @app.patch(
+        "/v1/{workspace}/banks/{bank_id}/core-memory/{block_name}/replace",
+        summary="Adapter-compatible core memory replace",
+        tags=["Memory"],
+    )
+    async def api_adapter_core_memory_replace(
+        workspace: str,
+        bank_id: str,
+        block_name: str,
+        request: _CoreMemoryReplaceRequest,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        _ = workspace
+        return await api_core_memory_replace(
+            bank_id=bank_id,
+            block_name=block_name,
+            request=request,
+            request_context=request_context,
+        )
 
     # ── Pressure pager ────────────────────────────────────────────────────
     # Compress a window of conversation messages into a single archival
@@ -3643,6 +3733,16 @@ def _register_routes(app: FastAPI):
             error_detail = f"{str(e)}\n\nTraceback:\n{traceback.format_exc()}"
             logger.error(f"Error in /v1/default/banks: {error_detail}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get(
+        "/v1/banks",
+        summary="Adapter-compatible list banks",
+        tags=["Banks"],
+    )
+    async def api_adapter_list_banks(request_context: RequestContext = Depends(get_request_context)):
+        """Compatibility alias that returns the raw banks array."""
+        response = await api_list_banks(request_context=request_context)
+        return response.banks
 
     @app.get(
         "/v1/default/banks/{bank_id}/stats",
@@ -5935,6 +6035,60 @@ def _register_routes(app: FastAPI):
             )
             logger.error(f"Error in /v1/default/banks/{bank_id}/memories (retain): {error_detail}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post(
+        "/v1/{workspace}/banks/{bank_id}/memories/retain",
+        summary="Adapter-compatible retain memory",
+        tags=["Memory"],
+    )
+    async def api_adapter_retain(
+        workspace: str,
+        bank_id: str,
+        request: _AdapterRetainRequest,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        """Compatibility endpoint for Hermes/OpenClaw-style retain calls."""
+        _ = workspace
+        retain_request = RetainRequest(
+            items=[
+                MemoryItem(
+                    content=request.content,
+                    context=request.context,
+                    metadata=request.metadata,
+                    document_id=request.document_id,
+                    tags=request.tags,
+                )
+            ],
+            async_=request.async_,
+        )
+        response = await api_retain(
+            bank_id=bank_id,
+            request=retain_request,
+            request_context=request_context,
+        )
+        body = response.model_dump(by_alias=True) if hasattr(response, "model_dump") else dict(response)
+        body.setdefault("id", body.get("operation_id") or str(uuid.uuid4()))
+        return body
+
+    @app.post(
+        "/v1/{workspace}/banks/{bank_id}/memories/recall",
+        response_model=RecallResponse,
+        summary="Adapter-compatible recall memory",
+        tags=["Memory"],
+    )
+    async def api_adapter_recall(
+        workspace: str,
+        bank_id: str,
+        request: RecallRequest,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        """Compatibility endpoint for Hermes/OpenClaw-style recall calls."""
+        _ = workspace
+        return await api_recall(
+            bank_id=bank_id,
+            request=request,
+            request_context=request_context,
+        )
 
     @app.post(
         "/v1/default/banks/{bank_id}/files/retain",

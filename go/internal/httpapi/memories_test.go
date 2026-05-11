@@ -105,8 +105,21 @@ func TestRetainWithoutEmbedClient(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503 without embed client, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 without embed client, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body retainResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Success {
+		t.Fatalf("expected success true, got %v", body.Success)
+	}
+	if body.ItemsCount != 1 {
+		t.Fatalf("expected items_count 1, got %d", body.ItemsCount)
+	}
+	if !containsWarning(body.Warnings, "not configured") {
+		t.Fatalf("expected missing embed warning, got %v", body.Warnings)
 	}
 }
 
@@ -177,15 +190,24 @@ func TestRetainEmbeddingFailure(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 on embed failure, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on embed failure fallback, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	var body map[string]any
+	var body retainResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body["error"].(string), "embedding") {
-		t.Fatalf("expected embedding error message, got %v", body["error"])
+	if !body.Success {
+		t.Fatalf("expected success true, got %v", body.Success)
+	}
+	if body.ItemsCount != 1 {
+		t.Fatalf("expected items_count 1, got %d", body.ItemsCount)
+	}
+	if embedClient.callCount != 1 {
+		t.Fatalf("expected 1 embed call, got %d", embedClient.callCount)
+	}
+	if !containsWarning(body.Warnings, "unavailable") {
+		t.Fatalf("expected embed failure warning, got %v", body.Warnings)
 	}
 }
 
@@ -212,8 +234,24 @@ func TestRetainEmbeddingCountMismatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 on embed count mismatch, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on embed count mismatch fallback, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var body retainResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Success {
+		t.Fatalf("expected success true, got %v", body.Success)
+	}
+	if body.ItemsCount != 2 {
+		t.Fatalf("expected items_count 2, got %d", body.ItemsCount)
+	}
+	if embedClient.callCount != 1 {
+		t.Fatalf("expected 1 embed call, got %d", embedClient.callCount)
+	}
+	if !containsWarning(body.Warnings, "unexpected vector count") {
+		t.Fatalf("expected embed count mismatch warning, got %v", body.Warnings)
 	}
 }
 
@@ -424,8 +462,8 @@ func TestRetainDocumentIDPreserved(t *testing.T) {
 func TestRetainPartialBatchFailureFailsEntireRequest(t *testing.T) {
 	// Simulate a storage failure on the second unit: the entire request should fail.
 	store := fakeStore{
-		insertMemoryUnitID: "unit-123",
-		insertChunkID:      "chunk-456",
+		insertMemoryUnitID:  "unit-123",
+		insertChunkID:       "chunk-456",
 		insertMemoryUnitErr: nil,
 	}
 	// We need the second InsertMemoryUnit to fail. fakeStore doesn't support per-call
@@ -629,4 +667,13 @@ func TestRetainResponseShape(t *testing.T) {
 	if body.OperationIDs != nil {
 		t.Fatalf("expected operation_ids nil, got %v", body.OperationIDs)
 	}
+}
+
+func containsWarning(warnings []string, needle string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, needle) {
+			return true
+		}
+	}
+	return false
 }

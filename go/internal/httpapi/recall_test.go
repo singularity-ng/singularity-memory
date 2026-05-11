@@ -253,7 +253,17 @@ func TestRecallEmptyQuery(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRecallEmbedFailure(t *testing.T) {
-	store := &fakeRecallStore{fakeStore: fakeStore{}}
+	store := &fakeRecallStore{
+		fakeStore: fakeStore{},
+		queryFunc: func(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+			if strings.Contains(sql, "search_vector <&>") || strings.Contains(sql, "to_bm25query") {
+				return newMockRows([]map[string]any{
+					{"id": "bm25-fallback", "text": "BM25 fallback result", "fact_type": "world", "tags": []string{}, "metadata": []byte(`{}`), "proof_count": 0, "similarity": nil, "bm25_score": -1.5},
+				}), nil
+			}
+			return newMockRows(nil), nil
+		},
+	}
 	embedClient := &fakeEmbedClient{
 		embedFunc: func(_ context.Context, _ []string) ([][]float32, error) {
 			return nil, errors.New("embed gateway down")
@@ -265,12 +275,21 @@ func TestRecallEmbedFailure(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 on embed failure, got %d body=%s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on embed failure fallback, got %d body=%s", rec.Code, rec.Body.String())
 	}
-	body := parseRecallMap(t, rec)
-	if !strings.Contains(body["error"].(string), "embedding") {
-		t.Fatalf("expected embedding error message, got %v", body["error"])
+	resp := parseRecallResponse(t, rec)
+	if len(resp.Results) == 0 {
+		t.Fatalf("expected BM25 fallback results, got none")
+	}
+	if resp.Results[0].ID != "bm25-fallback" {
+		t.Fatalf("expected bm25-fallback, got %s", resp.Results[0].ID)
+	}
+	if embedClient.callCount != 1 {
+		t.Fatalf("expected 1 embed call, got %d", embedClient.callCount)
+	}
+	if !containsWarning(resp.Warnings, "BM25-only") {
+		t.Fatalf("expected BM25-only warning, got %v", resp.Warnings)
 	}
 }
 

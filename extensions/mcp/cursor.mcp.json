@@ -1,7 +1,0 @@
-{
-  "mcpServers": {
-    "singularity-memory": {
-      "url": "http://localhost:8888/mcp/"
-    }
-  }
-}

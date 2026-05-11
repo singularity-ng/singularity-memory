@@ -55,6 +55,7 @@ type recallResponse struct {
 	SourceFacts map[string]recallResult `json:"source_facts,omitempty"`
 	Trace       map[string]any          `json:"trace,omitempty"`
 	Usage       tokenUsage              `json:"usage,omitempty"`
+	Warnings    []string                `json:"warnings,omitempty"`
 }
 
 type recallResult struct {
@@ -142,23 +143,24 @@ func (s *server) recall(w http.ResponseWriter, r *http.Request) {
 
 	// Embed query.
 	var queryEmbedding []float32
-	var embedTokens int
+	embedTokens := estimateTokens(req.Query)
+	var warnings []string
 	if s.deps.EmbedClient != nil {
 		embedStart := time.Now()
 		vectors, err := s.deps.EmbedClient.Embed(ctx, []string{req.Query})
 		embedLatency := time.Since(embedStart)
 		if err != nil {
-			s.logRecallError("embedding failed", err)
-			writeError(w, http.StatusBadGateway, "embedding failed: "+err.Error())
-			return
+			s.logRecallError("embedding failed; falling back to BM25-only recall", err)
+			warnings = append(warnings, "embedding service unavailable; using BM25-only recall")
+		} else if len(vectors) == 0 {
+			s.logRecallError("embedding returned no vectors; falling back to BM25-only recall", fmt.Errorf("embedding returned no vectors"))
+			warnings = append(warnings, "embedding service returned no vectors; using BM25-only recall")
+		} else {
+			queryEmbedding = vectors[0]
+			s.logRecallInfo("recall embed", "latency_ms", embedLatency.Milliseconds(), "tokens", embedTokens)
 		}
-		if len(vectors) == 0 {
-			writeError(w, http.StatusBadGateway, "embedding returned no vectors")
-			return
-		}
-		queryEmbedding = vectors[0]
-		embedTokens = estimateTokens(req.Query)
-		s.logRecallInfo("recall embed", "latency_ms", embedLatency.Milliseconds(), "tokens", embedTokens)
+	} else {
+		warnings = append(warnings, "embedding service not configured; using BM25-only recall")
 	}
 
 	schema := func(name string) string {
@@ -320,6 +322,7 @@ func (s *server) recall(w http.ResponseWriter, r *http.Request) {
 			OutputTokens: 0,
 			TotalTokens:  embedTokens,
 		},
+		Warnings: uniqueWarnings(warnings),
 	}
 
 	if req.Trace {

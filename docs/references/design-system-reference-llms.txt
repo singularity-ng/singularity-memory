@@ -1,0 +1,1 @@
+Reference slot for design-system guidance intended for LLM consumption.

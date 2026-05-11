@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import socket
 import subprocess
-import sys
 import time
+import uuid
 from pathlib import Path
 
 import httpx
@@ -33,21 +34,17 @@ def _stop_server(proc: subprocess.Popen[str]) -> tuple[str, str]:
 
 @pytest.fixture(scope="session")
 def server_url() -> str:
-    """Start the Python server as a subprocess and yield its base URL."""
+    """Start the Go server as a subprocess and yield its base URL."""
     env = os.environ.copy()
     env.setdefault(
         "SINGULARITY_DATABASE_URL",
-        "postgresql://singularity:singularity@127.0.0.1:5432/singularity_memory",
+        "postgresql://singularity_memory:password@127.0.0.1:5432/singularity_memory",
     )
-    env.setdefault("SINGULARITY_RUN_MIGRATIONS_ON_STARTUP", "false")
+    env.setdefault("SINGULARITY_DATABASE_SCHEMA", f"sm_contract_{uuid.uuid4().hex[:12]}")
     env.setdefault("SINGULARITY_MCP_ENABLED", "false")
-    env.setdefault("SINGULARITY_LLM_PROVIDER", "none")
-    env.setdefault("SINGULARITY_EMBEDDINGS_PROVIDER", "none")
-    env.setdefault("SINGULARITY_RERANKER_PROVIDER", "rrf")
-    env.setdefault("SINGULARITY_VECTOR_ENABLED", "false")
-    env.setdefault("SINGULARITY_ENABLE_OBSERVATIONS", "false")
-    env.setdefault("SINGULARITY_RETAIN_BATCH_ENABLED", "false")
-    env.setdefault("SINGULARITY_LOG_LEVEL", "warning")
+    env.setdefault("SINGULARITY_FEATURE_BANKS", "true")
+    env.setdefault("SINGULARITY_FEATURE_MEMORIES", "true")
+    env.setdefault("SINGULARITY_STORAGE_PROFILE", "vchord")
 
     host = env.get("SINGULARITY_HOST", "127.0.0.1")
     port = int(env.get("SINGULARITY_PORT") or _pick_port())
@@ -55,31 +52,29 @@ def server_url() -> str:
     env["SINGULARITY_PORT"] = str(port)
     url = f"http://{host}:{port}"
 
+    binary = shutil.which("singularity-memory-go")
+    if binary:
+        command = [binary, "--host", host, "--port", str(port)]
+        cwd = ROOT
+    else:
+        command = ["go", "run", "./cmd/singularity-memory-go", "--host", host, "--port", str(port)]
+        cwd = ROOT / "go"
+
     proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "singularity_memory_server.main",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--log-level",
-            env["SINGULARITY_LOG_LEVEL"],
-        ],
-        cwd=ROOT,
+        command,
+        cwd=cwd,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
 
-    # Wait for /health to return 200 (with timeout)
+    # Wait for /healthz to return 200 (with timeout)
     deadline = time.monotonic() + 30
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            resp = httpx.get(f"{url}/health", timeout=2)
+            resp = httpx.get(f"{url}/healthz", timeout=2)
             if resp.status_code == 200:
                 break
         except Exception as exc:

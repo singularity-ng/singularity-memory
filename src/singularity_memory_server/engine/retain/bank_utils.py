@@ -51,11 +51,15 @@ async def create_bank_vector_indexes(conn, bank_id: str, internal_id: str) -> No
 
     Respects the SINGULARITY_VECTOR_EXTENSION config to use the appropriate
     index type (HNSW for pgvector, DiskANN for pgvectorscale, vchordrq for vchord).
+    Skips index creation when SINGULARITY_VECTOR_ENABLED=false.
 
     Called immediately after the bank row is first inserted. Safe on empty banks
     (index build is instant). Idempotent via CREATE INDEX IF NOT EXISTS.
     bank_id is escaped for SQL literal safety (apostrophes doubled).
     """
+    if not get_config().vector_enabled:
+        return
+
     table = fq_table("memory_units")
     escaped = bank_id.replace("'", "''")
     using_clause = _vector_index_clause()

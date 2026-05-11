@@ -1,0 +1,1 @@
+Reference slot for uv/Python tooling guidance intended for LLM consumption.
