@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -26,7 +27,16 @@ func Open(ctx context.Context, cfg config.Config) (*Store, error) {
 	if !sqlIdentifierRE.MatchString(cfg.DatabaseSchema) {
 		return nil, fmt.Errorf("invalid database schema %q", cfg.DatabaseSchema)
 	}
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	// Set search_path so index names (which cannot be schema-qualified in
+	// CREATE INDEX syntax) resolve to the correct schema automatically.
+	// Include "public" for operator classes (vector_l2_ops etc.) and
+	// "tokenizer_catalog" for the tokenize() function used by BM25 indexing.
+	sep := "?"
+	if strings.Contains(cfg.DatabaseURL, "?") {
+		sep = "&"
+	}
+	dsn := cfg.DatabaseURL + sep + "search_path=" + cfg.DatabaseSchema + ",public,tokenizer_catalog"
+	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +50,19 @@ func Open(ctx context.Context, cfg config.Config) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsRune(s, substr))
+}
+
+func containsRune(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) Close() {
@@ -66,5 +89,7 @@ func (s *Store) index(name string) string {
 	if !sqlIdentifierRE.MatchString(name) {
 		panic("invalid static SQL index name")
 	}
-	return `"` + s.schema + `"."` + name + `"`
+	// Index names cannot be schema-qualified in CREATE INDEX; the schema is set
+	// via search_path on the connection so the index lands in the right schema.
+	return `"` + name + `"`
 }
