@@ -19,9 +19,16 @@ except Exception:  # pragma: no cover - lets this file import outside Hermes.
 
 DEFAULT_SERVER_URL = "http://127.0.0.1:8888"
 DEFAULT_BANK_ID = "default"
+DEFAULT_SHARED_BANK_ID = "shared"
 DEFAULT_CONTEXT_TOKENS = 1200
 DEFAULT_RECALL_MODE = "hybrid"
 MAX_SYNC_CHARS = 25000
+
+OPS_PRE_COMPRESS_PROMPT = (
+    "Preserve: incident timeline, commands run and their outcomes, root cause identified, "
+    "affected services and nodes, unresolved alerts, runbook gaps discovered, "
+    "decisions made and why."
+)
 
 
 class OperationsMemoryProvider(MemoryProvider):
@@ -32,9 +39,10 @@ class OperationsMemoryProvider(MemoryProvider):
         self._hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
         self._server_url = DEFAULT_SERVER_URL
         self._bank_id = DEFAULT_BANK_ID
+        self._shared_bank_id: Optional[str] = DEFAULT_SHARED_BANK_ID
         self._context_tokens = DEFAULT_CONTEXT_TOKENS
         self._recall_mode = DEFAULT_RECALL_MODE
-        self._auto_sync = True
+        self._auto_sync = False
         self._timeout = 8.0
         self._sync_thread: Optional[threading.Thread] = None
         self._prefetch_cache: Dict[str, str] = {}
@@ -56,9 +64,15 @@ class OperationsMemoryProvider(MemoryProvider):
         cfg = self._load_config()
         self._server_url = str(os.environ.get("OPS_MEMORY_URL") or cfg.get("server_url") or DEFAULT_SERVER_URL).rstrip("/")
         self._bank_id = str(os.environ.get("OPS_MEMORY_BANK_ID") or cfg.get("bank_id") or DEFAULT_BANK_ID)
+        shared_env = os.environ.get("OPS_MEMORY_SHARED_BANK_ID") or cfg.get("shared_bank_id") or DEFAULT_SHARED_BANK_ID
+        self._shared_bank_id = str(shared_env) if shared_env else None
         self._context_tokens = int(cfg.get("context_tokens") or DEFAULT_CONTEXT_TOKENS)
         self._recall_mode = str(cfg.get("recall_mode") or DEFAULT_RECALL_MODE)
-        self._auto_sync = bool(cfg.get("auto_sync", True))
+        auto_sync_env = os.environ.get("OPS_MEMORY_AUTO_SYNC")
+        if auto_sync_env is not None:
+            self._auto_sync = auto_sync_env.lower() not in ("0", "false", "no")
+        else:
+            self._auto_sync = bool(cfg.get("auto_sync", False))
         self._timeout = float(cfg.get("timeout_seconds") or 8.0)
 
     def system_prompt_block(self) -> str:
@@ -116,8 +130,7 @@ class OperationsMemoryProvider(MemoryProvider):
             tags=["hermes", "pre_compress"],
             metadata={"session_id": self._session_id, "source": "hermes.on_pre_compress"},
         )
-        return "Preserve Operations Memory-relevant user preferences, decisions, project facts, and unresolved tasks."
-
+        return OPS_PRE_COMPRESS_PROMPT
     def on_memory_write(
         self,
         action: str,
@@ -166,9 +179,10 @@ class OperationsMemoryProvider(MemoryProvider):
         config = {
             "server_url": values.get("server_url") or DEFAULT_SERVER_URL,
             "bank_id": values.get("bank_id") or DEFAULT_BANK_ID,
+            "shared_bank_id": values.get("shared_bank_id") or DEFAULT_SHARED_BANK_ID,
             "recall_mode": values.get("recall_mode") or DEFAULT_RECALL_MODE,
             "context_tokens": int(values.get("context_tokens") or DEFAULT_CONTEXT_TOKENS),
-            "auto_sync": True,
+            "auto_sync": False,
         }
         path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
@@ -263,16 +277,33 @@ class OperationsMemoryProvider(MemoryProvider):
             return {}
 
     def _build_context(self, query: str, *, session_id: str = "", max_tokens: Any = None) -> str:
+        token_budget = int(max_tokens or self._context_tokens)
         payload = {
             "query": query,
-            "max_tokens": int(max_tokens or self._context_tokens),
+            "max_tokens": token_budget,
             "mode": self._recall_mode,
         }
+
+        sections: list = []
+        # Query private bank
         data = self._request("POST", f"/v1/default/banks/{self._bank_id}/context", payload)
-        sections = data.get("sections") or []
+        sections.extend(data.get("sections") or [])
+
+        # Query shared bank if distinct from private bank
+        if self._shared_bank_id and self._shared_bank_id != self._bank_id:
+            shared_data = self._request("POST", f"/v1/default/banks/{self._shared_bank_id}/context", {
+                "query": query,
+                "max_tokens": max(token_budget // 2, 300),
+                "mode": self._recall_mode,
+            })
+            for section in (shared_data.get("sections") or []):
+                section = dict(section)
+                section["name"] = f"shared:{section.get('name', 'memory')}"
+                sections.append(section)
+
         if not sections:
             return ""
-        body = "\n\n".join(f"[{section.get('name', 'memory')}]\n{section.get('text', '')}" for section in sections)
+        body = "\n\n".join(f"[{s.get('name', 'memory')}]\n{s.get('text', '')}" for s in sections)
         return f"<operations-memory-context session_id=\"{session_id or self._session_id}\">\n{body}\n</operations-memory-context>"
 
     def _recall(self, query: str, args: Dict[str, Any]) -> Dict[str, Any]:
@@ -282,7 +313,21 @@ class OperationsMemoryProvider(MemoryProvider):
             "max_tokens": args.get("max_tokens") or self._context_tokens,
             "include": {"entities": {"max_tokens": 120}, "chunks": {"max_tokens": 160}},
         }
-        return self._request("POST", f"/v1/default/banks/{self._bank_id}/memories/recall", payload)
+        result = self._request("POST", f"/v1/default/banks/{self._bank_id}/memories/recall", payload)
+
+        # Also query shared bank if distinct
+        if self._shared_bank_id and self._shared_bank_id != self._bank_id:
+            try:
+                shared = self._request("POST", f"/v1/default/banks/{self._shared_bank_id}/memories/recall", payload)
+                # Merge items from shared bank into result
+                for key in ("chunks", "items", "results"):
+                    if shared.get(key) and isinstance(shared[key], list):
+                        result.setdefault(key, [])
+                        result[key].extend(shared[key])
+            except Exception:
+                pass  # shared bank recall failure is non-fatal
+
+        return result
 
     def _retain(self, content: str, *, context: str, tags: List[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
         payload = {"items": [{"content": content, "context": context, "tags": tags, "metadata": metadata}]}
