@@ -13,7 +13,7 @@ type Task string
 const (
 	TaskSummarizeTurn   Task = "summarize_turn"
 	TaskConsolidateBank Task = "consolidate_bank"
-	TaskHindsight       Task = "hindsight"
+	TaskPostmortem       Task = "postmortem"
 	TaskExtractEntities Task = "extract_entities"
 	TaskImportanceScore Task = "importance_score"
 )
@@ -38,7 +38,7 @@ type Router struct {
 var taskEnvPrefix = map[Task]string{
 	TaskSummarizeTurn:   "SUMMARIZE_TURN",
 	TaskConsolidateBank: "CONSOLIDATE_BANK",
-	TaskHindsight:       "HINDSIGHT",
+	TaskPostmortem:       "POSTMORTEM",
 	TaskExtractEntities: "EXTRACT_ENTITIES",
 	TaskImportanceScore: "IMPORTANCE_SCORE",
 }

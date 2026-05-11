@@ -9,7 +9,7 @@ import (
 	"git.infra.centralcloud.com/centralcloud/operations-memory/internal/store"
 )
 
-type hindsightRequest struct {
+type postmortemRequest struct {
 	Fingerprint   string   `json:"fingerprint"`
 	RootCause     string   `json:"root_cause"`
 	Resolution    string   `json:"resolution"`
@@ -37,19 +37,19 @@ func (s *server) enqueueSleep(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *server) enqueueHindsight(w http.ResponseWriter, r *http.Request) {
+func (s *server) enqueuePostmortem(w http.ResponseWriter, r *http.Request) {
 	if s.deps.Store == nil {
 		writeError(w, http.StatusServiceUnavailable, "database is not configured")
 		return
 	}
-	var req hindsightRequest
+	var req postmortemRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	bankID := chi.URLParam(r, "bank_id")
 	_, err := s.deps.Store.EnqueueBrainJob(r.Context(), bankID, store.BrainJobInput{
-		Kind: "hindsight",
+		Kind: "postmortem",
 		Params: map[string]any{
 			"fingerprint":   req.Fingerprint,
 			"root_cause":    req.RootCause,

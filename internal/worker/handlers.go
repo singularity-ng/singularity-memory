@@ -166,7 +166,7 @@ Rules:
 	}
 
 	// Memory decay: archive routine low-confidence memories older than 90 days
-	// so they don't dominate recall. Preserves experience/runbook/hindsight types.
+	// so they don't dominate recall. Preserves experience/runbook/postmortem types.
 	if err := decayOldMemories(ctx, bankID, s, logger); err != nil {
 		logger.Warn("sleep: memory decay failed", "bank_id", bankID, "error", err)
 	}
@@ -174,8 +174,8 @@ Rules:
 	return nil
 }
 
-// handleHindsight extracts post-incident lessons and stores them as memory units.
-func handleHindsight(ctx context.Context, bankID string, job *store.BrainJob, s Store, route modelrouter.Route, logger *log.Logger) error {
+// handlePostmortem extracts post-incident lessons and stores them as memory units.
+func handlePostmortem(ctx context.Context, bankID string, job *store.BrainJob, s Store, route modelrouter.Route, logger *log.Logger) error {
 	fp, _ := job.Params["fingerprint"].(string)
 	rootCause, _ := job.Params["root_cause"].(string)
 	resolution, _ := job.Params["resolution"].(string)
@@ -205,7 +205,7 @@ func handleHindsight(ctx context.Context, bankID string, job *store.BrainJob, s 
 	}
 
 	if len(lines) == 0 {
-		logger.Info("hindsight: no memories for fingerprint, skipping", "bank_id", bankID, "fingerprint", fp)
+		logger.Info("postmortem: no memories for fingerprint, skipping", "bank_id", bankID, "fingerprint", fp)
 		return nil
 	}
 
@@ -221,7 +221,7 @@ Resolved by: %s
 Agent activity during incident:
 %s
 
-With hindsight, extract lessons as a JSON object:
+With postmortem, extract lessons as a JSON object:
 {
   "lessons": ["next time X fires, check Y first", "..."],
   "runbook_gaps": ["runbook step Z was wrong: ...", "..."],
@@ -237,7 +237,7 @@ Rules:
 	client := llm.New(route)
 	raw, err := client.Complete(ctx,
 		[]llm.Message{{Role: "user", Content: userMsg}},
-		llm.WithSystemPrompt("You are an ops hindsight analyst. Your job is to extract durable lessons from resolved incidents."),
+		llm.WithSystemPrompt("You are an ops postmortem analyst. Your job is to extract durable lessons from resolved incidents."),
 		llm.WithMaxTokens(2048),
 		llm.WithTemperature(0.2),
 	)
@@ -265,9 +265,9 @@ Rules:
 			Text:      lesson,
 			FactType:  "experience",
 			EventDate: now,
-			Tags:      []string{"hindsight", fpTag},
+			Tags:      []string{"postmortem", fpTag},
 		}); err != nil {
-			logger.Warn("hindsight: insert lesson failed", "bank_id", bankID, "error", err)
+			logger.Warn("postmortem: insert lesson failed", "bank_id", bankID, "error", err)
 		}
 	}
 
@@ -283,7 +283,7 @@ Rules:
 			EventDate: now,
 			Tags:      []string{"runbook-gap", fpTag},
 		}); err != nil {
-			logger.Warn("hindsight: insert runbook gap failed", "bank_id", bankID, "error", err)
+			logger.Warn("postmortem: insert runbook gap failed", "bank_id", bankID, "error", err)
 		}
 	}
 
@@ -323,7 +323,7 @@ Rules:
 					"resolved":     true,
 				},
 			}); err != nil {
-				logger.Warn("hindsight: insert runbook effectiveness failed", "bank_id", bankID, "slug", slug, "error", err)
+				logger.Warn("postmortem: insert runbook effectiveness failed", "bank_id", bankID, "slug", slug, "error", err)
 			}
 		}
 	}
@@ -451,7 +451,7 @@ func decayOldMemories(ctx context.Context, bankID string, s Store, logger *log.L
 		   AND created_at < NOW() - INTERVAL '90 days'
 		   AND fact_type IN ('observation', 'event')
 		   AND (confidence_score IS NULL OR confidence_score < 0.5)
-		   AND NOT (tags && ARRAY['hindsight','runbook-effectiveness','runbook-gap','experience'])
+		   AND NOT (tags && ARRAY['postmortem','runbook-effectiveness','runbook-gap','experience'])
 		`,
 		bankID,
 	)

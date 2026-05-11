@@ -78,7 +78,7 @@ func (w *Worker) Start(ctx context.Context) {
 			continue
 		}
 
-		kinds := []string{"sleep", "hindsight", "consolidate"}
+		kinds := []string{"sleep", "postmortem", "consolidate"}
 		found := false
 		for _, bank := range banks {
 			bankID := bank.BankID
@@ -120,13 +120,13 @@ func (w *Worker) dispatch(ctx context.Context, bankID string, job *store.BrainJo
 			return
 		}
 		handlerErr = handleSleep(ctx, bankID, job, w.store, route, w.logger, w.sharedBankID)
-	case "hindsight":
-		route, ok := w.router.Route(ctx, modelrouter.TaskHindsight)
+	case "postmortem":
+		route, ok := w.router.Route(ctx, modelrouter.TaskPostmortem)
 		if !ok {
-			w.logger.Info("worker: skipping hindsight job — no LLM configured", "bank_id", bankID, "job_id", job.ID)
+			w.logger.Info("worker: skipping postmortem job — no LLM configured", "bank_id", bankID, "job_id", job.ID)
 			return
 		}
-		handlerErr = handleHindsight(ctx, bankID, job, w.store, route, w.logger)
+		handlerErr = handlePostmortem(ctx, bankID, job, w.store, route, w.logger)
 	default:
 		w.logger.Warn("worker: unknown job kind", "kind", job.Kind, "bank_id", bankID, "job_id", job.ID)
 		return
