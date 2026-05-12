@@ -46,6 +46,7 @@ class OperationsMemoryProvider(MemoryProvider):
         self._timeout = 8.0
         self._sync_thread: Optional[threading.Thread] = None
         self._prefetch_cache: Dict[str, str] = {}
+        self._agent_context = "primary"
 
     @property
     def name(self) -> str:
@@ -74,12 +75,16 @@ class OperationsMemoryProvider(MemoryProvider):
         else:
             self._auto_sync = bool(cfg.get("auto_sync", False))
         self._timeout = float(cfg.get("timeout_seconds") or 8.0)
+        self._agent_context = str(kwargs.get("agent_context") or "primary")
 
     def system_prompt_block(self) -> str:
         return (
-            "Operations Memory is active. Use operations_memory_recall for targeted recall, "
-            "operations_memory_context for the current memory packet, and "
-            "operations_memory_remember for durable facts worth retaining."
+            f"Long-term memory is active (bank: {self._bank_id}). "
+            "Call memory_context at the start of any multi-step task to load relevant history. "
+            "Use memory_recall before answering questions about past incidents, decisions, or patterns. "
+            "Use memory_store after resolving incidents or making significant decisions. "
+            "Use memory_forget to remove stale or incorrect memories (IDs come from memory_recall). "
+            "Use memory_core to read or update standing orders, contacts, and known fragile services."
         )
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
@@ -100,7 +105,7 @@ class OperationsMemoryProvider(MemoryProvider):
         threading.Thread(target=_work, daemon=True).start()
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "") -> None:
-        if not self._auto_sync:
+        if not self._auto_sync or self._agent_context != "primary":
             return
 
         def _sync() -> None:
@@ -138,7 +143,7 @@ class OperationsMemoryProvider(MemoryProvider):
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if action not in {"add", "replace"} or not content:
+        if action not in {"add", "replace"} or not content or self._agent_context != "primary":
             return
         md = dict(metadata or {})
         md.update({"target": target, "source": "hermes.on_memory_write", "action": action})
@@ -147,6 +152,18 @@ class OperationsMemoryProvider(MemoryProvider):
     def shutdown(self) -> None:
         if self._sync_thread and self._sync_thread.is_alive():
             self._sync_thread.join(timeout=3.0)
+
+    def on_session_switch(
+        self,
+        new_session_id: str,
+        *,
+        parent_session_id: str = "",
+        reset: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        self._session_id = new_session_id
+        if reset:
+            self._prefetch_cache.clear()
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
         return [
@@ -191,56 +208,125 @@ class OperationsMemoryProvider(MemoryProvider):
             return []
         return [
             {
-                "name": "operations_memory_context",
-                "description": "Build the current Operations Memory context packet.",
+                "name": "memory_context",
+                "description": (
+                    "Load the full memory context packet for this session. "
+                    "Call once at the start of any multi-step task or incident response "
+                    "to surface recent decisions, open incidents, and team standing orders. "
+                    "Returns a structured block covering core blocks, recent recall, and shared runbooks."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string"},
-                        "max_tokens": {"type": "integer", "default": self._context_tokens},
+                        "query": {
+                            "type": "string",
+                            "description": "Topic or task description to focus the context packet.",
+                        },
+                        "max_tokens": {
+                            "type": "integer",
+                            "description": "Token budget for the returned packet. Default: 1200.",
+                        },
                     },
                 },
             },
             {
-                "name": "operations_memory_recall",
-                "description": "Recall relevant memories with hybrid BM25/vector/graph retrieval.",
+                "name": "memory_recall",
+                "description": (
+                    "Search long-term memory using BM25 + vector + graph hybrid retrieval. "
+                    "Use to find past incidents, root causes, runbook steps, team decisions, "
+                    "or any fact that was stored in a previous session. "
+                    "Prefer this over guessing — if something might have been handled before, recall it first. "
+                    "budget controls result size: low (~1k tokens), mid (~3k, default), high (~6k)."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string"},
-                        "budget": {"type": "string", "enum": ["low", "mid", "high"], "default": "mid"},
+                        "query": {
+                            "type": "string",
+                            "description": "What to search for. Be specific: service name, symptom, alert name.",
+                        },
+                        "budget": {
+                            "type": "string",
+                            "enum": ["low", "mid", "high"],
+                            "description": "Result size — low (~1k tokens), mid (~3k, default), high (~6k).",
+                        },
                         "max_tokens": {"type": "integer"},
                     },
                     "required": ["query"],
                 },
             },
             {
-                "name": "operations_memory_remember",
-                "description": "Store a durable memory in Operations Memory.",
+                "name": "memory_store",
+                "description": (
+                    "Persist a fact, decision, or observation to long-term memory. "
+                    "Use after resolving an incident, making a significant infra decision, "
+                    "or discovering a non-obvious pattern. "
+                    "Good candidates: root causes found, commands that worked, services that are fragile, "
+                    "decisions made and why, runbook gaps discovered. "
+                    "Skip: routine status checks, things easily re-discovered, transient task state."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "content": {"type": "string"},
-                        "context": {"type": "string"},
-                        "tags": {"type": "array", "items": {"type": "string"}},
+                        "content": {
+                            "type": "string",
+                            "description": "The fact or decision to store. Be concrete and include outcome.",
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "Label for retrieval (e.g. 'incident', 'runbook', 'decision', 'pattern').",
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Tags for filtering (e.g. ['k8s', 'postgres', 'p1']).",
+                        },
                     },
                     "required": ["content"],
                 },
             },
             {
-                "name": "operations_memory_core",
-                "description": "Read or edit a core memory block.",
+                "name": "memory_forget",
+                "description": (
+                    "Delete a specific memory by ID. "
+                    "Use when a stored fact is stale, incorrect, or superseded. "
+                    "Memory IDs are returned by memory_recall results."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "action": {"type": "string", "enum": ["list", "set", "append", "replace", "delete"]},
-                        "block_name": {"type": "string"},
-                        "content": {"type": "string"},
-                        "text": {"type": "string"},
-                        "old_text": {"type": "string"},
-                        "new_text": {"type": "string"},
-                        "char_limit": {"type": "integer"},
-                        "description": {"type": "string"},
+                        "memory_id": {
+                            "type": "string",
+                            "description": "ID of the memory to delete, as returned by memory_recall.",
+                        },
+                    },
+                    "required": ["memory_id"],
+                },
+            },
+            {
+                "name": "memory_core",
+                "description": (
+                    "Read or edit a named core memory block. "
+                    "Core blocks are persistent, always-on context: standing orders, on-call contacts, "
+                    "known fragile services, escalation paths. "
+                    "Use list to see available blocks, set/append/replace to update them, delete to remove. "
+                    "Changes take effect immediately in subsequent context packets."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["list", "set", "append", "replace", "delete"],
+                            "description": "list: show all blocks. set: create/overwrite. append/replace: partial edit. delete: remove.",
+                        },
+                        "block_name": {"type": "string", "description": "Name of the core block."},
+                        "content": {"type": "string", "description": "Full content for set action."},
+                        "text": {"type": "string", "description": "Text to append (append action)."},
+                        "old_text": {"type": "string", "description": "Text to find (replace action)."},
+                        "new_text": {"type": "string", "description": "Replacement text (replace action)."},
+                        "char_limit": {"type": "integer", "description": "Character cap for this block."},
+                        "description": {"type": "string", "description": "Human-readable description of this block's purpose."},
                     },
                     "required": ["action"],
                 },
@@ -249,11 +335,11 @@ class OperationsMemoryProvider(MemoryProvider):
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs: Any) -> str:
         try:
-            if tool_name == "operations_memory_context":
+            if tool_name == "memory_context":
                 return json.dumps({"context": self._build_context(str(args.get("query", "")), max_tokens=args.get("max_tokens"))})
-            if tool_name == "operations_memory_recall":
+            if tool_name == "memory_recall":
                 return json.dumps(self._recall(str(args["query"]), args))
-            if tool_name == "operations_memory_remember":
+            if tool_name == "memory_store":
                 self._retain(
                     str(args["content"]),
                     context=str(args.get("context", "Hermes explicit memory")),
@@ -261,8 +347,13 @@ class OperationsMemoryProvider(MemoryProvider):
                     metadata={"session_id": kwargs.get("session_id") or self._session_id, "source": "hermes.tool"},
                 )
                 return json.dumps({"ok": True})
-            if tool_name == "operations_memory_core":
+            if tool_name == "memory_core":
                 return json.dumps(self._core_memory(args))
+            if tool_name == "memory_forget":
+                memory_id = str(args.get("memory_id") or "")
+                if not memory_id:
+                    return json.dumps({"ok": False, "error": "memory_id is required"})
+                return json.dumps(self._request("DELETE", f"/v1/default/banks/{self._bank_id}/memories/{memory_id}"))
         except Exception as exc:
             return json.dumps({"ok": False, "error": str(exc)})
         return json.dumps({"ok": False, "error": f"unknown tool {tool_name}"})

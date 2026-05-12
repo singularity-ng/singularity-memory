@@ -151,20 +151,20 @@ func FromEnv() Config {
 	)
 
 	return Config{
-		Host:           getenvAny(defaultHost, "OPS_MEMORY_HOST", "SINGULARITY_HOST"),
-		Port:           getenvAny(defaultPort, "OPS_MEMORY_PORT", "SINGULARITY_PORT"),
-		DatabaseURL:    getenvAny("", "OPS_MEMORY_DATABASE_URL", "SINGULARITY_DATABASE_URL"),
-		DatabaseSchema: getenvAny(defaultDatabaseSchema, "OPS_MEMORY_DATABASE_SCHEMA", "SINGULARITY_DATABASE_SCHEMA"),
-		MCPEnabled:     getenvBoolAny(true, "OPS_MEMORY_MCP_ENABLED", "SINGULARITY_MCP_ENABLED"),
+		Host:           getenvAny(defaultHost, "OPS_MEMORY_HOST"),
+		Port:           getenvAny(defaultPort, "OPS_MEMORY_PORT"),
+		DatabaseURL:    getenvAny("", "OPS_MEMORY_DATABASE_URL"),
+		DatabaseSchema: getenvAny(defaultDatabaseSchema, "OPS_MEMORY_DATABASE_SCHEMA"),
+		MCPEnabled:     getenvBoolAny(true, "OPS_MEMORY_MCP_ENABLED"),
 
-		EmbedGatewayURL: getenvAny("", "OPS_MEMORY_EMBEDDINGS_OPENAI_BASE_URL", "SINGULARITY_EMBEDDINGS_OPENAI_BASE_URL"),
-		EmbedAPIKey:     firstNonEmpty(getenvAny("", "OPS_MEMORY_EMBEDDINGS_OPENAI_API_KEY", "SINGULARITY_EMBEDDINGS_OPENAI_API_KEY"), os.Getenv("LLM_MUX_API_KEY")),
-		EmbedModel:      getenvAny(defaultEmbedModel, "OPS_MEMORY_EMBEDDINGS_OPENAI_MODEL", "SINGULARITY_EMBEDDINGS_OPENAI_MODEL"),
-		EmbedDimensions: getenvIntAny(defaultEmbedDimensions, "OPS_MEMORY_EMBEDDINGS_OPENAI_DIMENSIONS", "SINGULARITY_EMBEDDINGS_OPENAI_DIMENSIONS"),
+		EmbedGatewayURL: getenvAny("", "OPS_MEMORY_EMBEDDINGS_OPENAI_BASE_URL"),
+		EmbedAPIKey:     firstNonEmpty(getenvAny("", "OPS_MEMORY_EMBEDDINGS_OPENAI_API_KEY"), os.Getenv("LLM_MUX_API_KEY")),
+		EmbedModel:      getenvAny(defaultEmbedModel, "OPS_MEMORY_EMBEDDINGS_OPENAI_MODEL"),
+		EmbedDimensions: getenvIntAny(defaultEmbedDimensions, "OPS_MEMORY_EMBEDDINGS_OPENAI_DIMENSIONS"),
 		EmbedBatchSize:  getenvIntAny(defaultEmbedBatchSize, "OPS_MEMORY_EMBED_BATCH_SIZE"),
 
-		RerankGatewayURL: getenvAny("", "OPS_MEMORY_RERANK_OPENAI_BASE_URL", "SINGULARITY_RERANK_OPENAI_BASE_URL"),
-		RerankAPIKey:     firstNonEmpty(getenvAny("", "OPS_MEMORY_RERANK_OPENAI_API_KEY", "SINGULARITY_RERANK_OPENAI_API_KEY"), getenvAny("", "OPS_MEMORY_EMBEDDINGS_OPENAI_API_KEY", "SINGULARITY_EMBEDDINGS_OPENAI_API_KEY"), os.Getenv("LLM_MUX_API_KEY")),
+		RerankGatewayURL: getenvAny("", "OPS_MEMORY_RERANK_OPENAI_BASE_URL"),
+		RerankAPIKey:     firstNonEmpty(getenvAny("", "OPS_MEMORY_RERANK_OPENAI_API_KEY"), getenvAny("", "OPS_MEMORY_EMBEDDINGS_OPENAI_API_KEY"), os.Getenv("LLM_MUX_API_KEY")),
 		RerankModel:      getenvAny(defaultRerankModel, "OPS_MEMORY_RERANK_MODEL"),
 		RerankTopK:       getenvIntAny(defaultRerankTopK, "OPS_MEMORY_RERANK_TOP_K"),
 
@@ -181,7 +181,7 @@ func FromEnv() Config {
 		WorkerLLMModel:     getenvAny(defaultWorkerModel, "OPS_MEMORY_WORKER_MODEL"),
 		WorkerPollInterval: getenvDurationAny(30*time.Second, "OPS_MEMORY_WORKER_POLL_INTERVAL"),
 		WorkerConcurrency:  getenvIntAny(2, "OPS_MEMORY_WORKER_CONCURRENCY"),
-		WorkerSharedBankID: getenvAny("shared", "OPS_MEMORY_SHARED_BANK_ID", "SINGULARITY_SHARED_BANK_ID"),
+		WorkerSharedBankID: getenvAny("shared", "OPS_MEMORY_SHARED_BANK_ID"),
 
 		RetainBatchTokens: getenvIntAny(defaultRetainBatchTokens, "OPS_MEMORY_RETAIN_BATCH_TOKENS"),
 		RRFK:              getenvIntAny(defaultRRFK, "OPS_MEMORY_RRF_K"),
