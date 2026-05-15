@@ -303,20 +303,20 @@ func getenvDurationAny(fallback time.Duration, keys ...string) time.Duration {
 	return fallback
 }
 
-// parseFeatureFlags reads OPS_MEMORY_FEATURE_* values. All flags default to false.
+// parseFeatureFlags reads OPS_MEMORY_FEATURE_* values.
+// All flags default to false.
 func parseFeatureFlags() map[string]bool {
 	flags := make(map[string]bool)
-	const prefix = "OPS_MEMORY_FEATURE_"
 	for _, e := range os.Environ() {
 		pair := strings.SplitN(e, "=", 2)
 		if len(pair) != 2 {
 			continue
 		}
 		key := pair[0]
-		if !strings.HasPrefix(key, prefix) {
+		if !strings.HasPrefix(key, "OPS_MEMORY_FEATURE_") {
 			continue
 		}
-		name := strings.ToLower(strings.TrimPrefix(key, prefix))
+		name := strings.ToLower(strings.TrimPrefix(key, "OPS_MEMORY_FEATURE_"))
 		val, err := strconv.ParseBool(pair[1])
 		if err != nil {
 			continue
