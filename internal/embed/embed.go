@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -18,17 +19,21 @@ import (
 
 // Client calls an OpenAI-compatible /v1/embeddings endpoint.
 type Client struct {
-	cfg    config.Config
-	client *http.Client
-	logger *log.Logger
+	cfg           config.Config
+	client        *http.Client
+	logger        *log.Logger
+	lastFail      time.Time
+	lastFailMu    sync.RWMutex
+	cooldown      time.Duration
 }
 
 // NewClient creates an embedding client from config.
 func NewClient(cfg config.Config, logger *log.Logger) *Client {
 	return &Client{
-		cfg:    cfg,
-		client: &http.Client{Timeout: 30 * time.Second},
-		logger: logger,
+		cfg:      cfg,
+		client:   &http.Client{Timeout: 30 * time.Second},
+		logger:   logger,
+		cooldown: 10 * time.Minute,
 	}
 }
 
@@ -56,9 +61,20 @@ type embedResponse struct {
 
 // Embed turns a slice of strings into a slice of float32 vectors.
 // It preserves input order and supports batch splitting.
+// If the embedding service recently failed, we skip the call and return
+// an error immediately to avoid hammering the downstream service.
 func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error) {
 	if len(inputs) == 0 {
 		return nil, nil
+	}
+
+	// Check cooldown — if we failed recently, fail fast without hitting
+	// the embedding service again.
+	c.lastFailMu.RLock()
+	cooldownActive := !c.lastFail.IsZero() && time.Since(c.lastFail) < c.cooldown
+	c.lastFailMu.RUnlock()
+	if cooldownActive {
+		return nil, fmt.Errorf("embed gateway in cooldown (last failure %s ago, cooldown %s)", time.Since(c.lastFail).Round(time.Second), c.cooldown)
 	}
 
 	batchSize := c.cfg.EmbedBatchSize
@@ -76,11 +92,18 @@ func (c *Client) Embed(ctx context.Context, inputs []string) ([][]float32, error
 
 		vectors, err := c.embedBatch(ctx, batch, i)
 		if err != nil {
+			c.recordFailure()
 			return nil, err
 		}
 		all = append(all, vectors...)
 	}
 	return all, nil
+}
+
+func (c *Client) recordFailure() {
+	c.lastFailMu.Lock()
+	c.lastFail = time.Now()
+	c.lastFailMu.Unlock()
 }
 
 func (c *Client) embedBatch(ctx context.Context, inputs []string, baseIndex int) ([][]float32, error) {

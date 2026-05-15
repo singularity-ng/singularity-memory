@@ -231,7 +231,16 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		status = http.StatusServiceUnavailable
 	}
-	writeJSON(w, status, map[string]any{
+
+	// Check embedding service health if configured
+	embedHealthy := false
+	if s.deps.Config.EmbedGatewayURL != "" && s.deps.EmbedClient != nil {
+		if _, err := s.deps.EmbedClient.Embed(ctx, []string{"health check"}); err == nil {
+			embedHealthy = true
+		}
+	}
+
+	resp := map[string]any{
 		"ok":                ok,
 		"service":           "operations-memory-go",
 		"database":          db,
@@ -239,8 +248,15 @@ func (s *server) healthz(w http.ResponseWriter, r *http.Request) {
 		"mcp_enabled":       s.deps.Config.MCPEnabled,
 		"storage_profile":   s.deps.Config.StorageProfile.String(),
 		"embed_configured":  s.deps.Config.EmbedGatewayURL != "",
+		"embed_healthy":     embedHealthy,
 		"rerank_configured": s.deps.Config.RerankGatewayURL != "",
-	})
+	}
+
+	if s.deps.Config.EmbedGatewayURL != "" && !embedHealthy {
+		resp["warning"] = "embedding service unhealthy; dense retrieval unavailable"
+	}
+
+	writeJSON(w, status, resp)
 }
 
 func (s *server) version(w http.ResponseWriter, r *http.Request) {
